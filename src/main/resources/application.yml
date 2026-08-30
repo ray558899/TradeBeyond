@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: trade-beyond-api
+
+  datasource:
+    # 本機開發預設值對應 docker-compose.yml 的 postgres 服務設定；
+    # 正式環境一律由 Secret Manager 注入的環境變數覆蓋，不會用到這裡的預設值。
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/tradebeyond}
+    username: ${DB_USERNAME:admin}
+    password: ${DB_PASSWORD:123456}
+    hikari:
+      connection-timeout: 3000
+      # HikariCP 的 read timeout 由驅動層 socketTimeout 控制，此處先保留連線逾時設定，
+      # 待實際導入資料存取邏輯時再依需求補上 socketTimeout 參數。
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: ${PORT:8080}
+
+# JWT 簽章密鑰：不設任何預設值，必須由環境變數（本機 .env 或正式環境 Secret Manager）提供。
+# 目前尚未實作簽發/驗證邏輯，此處僅先佔位。
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html

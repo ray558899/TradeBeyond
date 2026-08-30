@@ -1,0 +1,24 @@
+# Maven
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# 環境變數 / 機密（.env.example 除外，該檔案僅含範例值，允許被 commit）
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+*.iml
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+
+# OS
+.DS_Store
+
+# 日誌
+*.log
