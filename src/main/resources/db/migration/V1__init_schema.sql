@@ -61,3 +61,21 @@ CREATE TABLE orders (
 
 CREATE INDEX idx_orders_user_id ON orders (user_id);
 CREATE INDEX idx_orders_product_id ON orders (product_id);
+
+-- Refresh Token 存 DB（而非 Users 加欄位），因為一個使用者可能同時有多個裝置/session
+-- 各自的 refresh token，一對多關係要用獨立表才能正確表達。
+-- 這張表刻意不套用 Part 4.4 的 create_at/update_at/delete_at 軟刪除三件套：
+-- token 的生命週期是「過期」或「撤銷」，不是一般資源的軟刪除語意，用 revoked_at 就足以表達。
+CREATE TABLE refresh_token (
+    refresh_token_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id           BIGINT       NOT NULL,
+    token             VARCHAR(255) NOT NULL, -- 存 SHA-256 雜湊值（Base64URL 編碼），不是明碼 token
+    expires_at        TIMESTAMPTZ  NOT NULL,
+    revoked_at        TIMESTAMPTZ  NULL,
+    create_at         TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT fk_refresh_token_user
+        FOREIGN KEY (user_id) REFERENCES users (user_id)
+);
+
+CREATE UNIQUE INDEX uk_refresh_token_token ON refresh_token (token);
+CREATE INDEX idx_refresh_token_user_id ON refresh_token (user_id);

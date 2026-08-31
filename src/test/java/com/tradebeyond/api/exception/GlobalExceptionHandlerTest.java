@@ -5,21 +5,30 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.tradebeyond.api.config.JwtAuthenticationEntryPoint;
+import com.tradebeyond.api.config.JwtAuthenticationFilter;
 import com.tradebeyond.api.config.SecurityConfig;
+import com.tradebeyond.api.service.TokenService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * 獨立測試 @RestControllerAdvice 的每個例外分支，不依賴真正的業務 Controller ——
  * 用 ExceptionHandlerTestController（測試專用假 Controller）直接丟出各種例外，
  * 驗證 Advice 有沒有把它們正確轉成 RFC 7807 ProblemDetail + errorCode。
+ * 這裡只測例外處理格式，不測認證本身，用 addFilters = false 讓 SecurityConfig
+ * filter chain 不生效（認證行為由 SecurityAuthenticationTest 獨立驗證）。
  */
 @WebMvcTest(controllers = ExceptionHandlerTestController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class})
+@AutoConfigureMockMvc(addFilters = false)
+@TestPropertySource(properties = "JWT_SECRET=test-jwt-secret-for-controller-test-0123456789")
 class GlobalExceptionHandlerTest {
 
     @Autowired
@@ -78,5 +87,14 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409))
                 .andExpect(jsonPath("$.errorCode").value("OPTIMISTIC_LOCK_CONFLICT"));
+    }
+
+    @Test
+    void conflictException_mapsTo409_withProblemDetailAndErrorCode() throws Exception {
+        // ConflictException 的所有子類別（例如 Phase 5 的 DuplicateAccountException）都要被同一個 handler 攔到，回 409
+        mockMvc.perform(get("/test/conflict"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.errorCode").value("TEST_CONFLICT"));
     }
 }

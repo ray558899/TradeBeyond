@@ -42,8 +42,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ProblemDetail handleValidation(MethodArgumentNotValidException ex) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "輸入驗證失敗");
-        problem.setProperty("errorCode", "VALIDATION_FAILED");
+        ProblemDetail problem = ProblemDetailFactory.create(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "輸入驗證失敗");
         Map<String, String> fieldErrors = ex.getBindingResult().getFieldErrors().stream()
                 .collect(Collectors.toMap(
                         FieldError::getField,
@@ -53,20 +52,21 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(ConflictException.class)
+    public ProblemDetail handleConflict(ConflictException ex) {
+        return buildProblemDetail(HttpStatus.CONFLICT, ex);
+    }
+
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     public ProblemDetail handleOptimisticLock(ObjectOptimisticLockingFailureException ex) {
         // Part 8.3：Order 的 @Version 樂觀鎖被觸發時，Hibernate/Spring 丟的是這個框架例外，
         // 不屬於我們自訂的 BaseException 階層，所以在這裡直接處理，不特地包一層自訂例外類別
         // ——這個情境本質上就是「併發衝突」，用 Spring 既有的、語意明確的例外類型就夠了，沒有必要疊床架屋。
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-                HttpStatus.CONFLICT, "資料已被其他請求同時修改，請重新讀取最新版本後再試");
-        problem.setProperty("errorCode", "OPTIMISTIC_LOCK_CONFLICT");
-        return problem;
+        return ProblemDetailFactory.create(
+                HttpStatus.CONFLICT, "OPTIMISTIC_LOCK_CONFLICT", "資料已被其他請求同時修改，請重新讀取最新版本後再試");
     }
 
     private ProblemDetail buildProblemDetail(HttpStatus status, BaseException ex) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, ex.getMessage());
-        problem.setProperty("errorCode", ex.getErrorCode());
-        return problem;
+        return ProblemDetailFactory.create(status, ex.getErrorCode(), ex.getMessage());
     }
 }

@@ -44,6 +44,11 @@ public class ExceptionHandlerTestController {
         throw new ObjectOptimisticLockingFailureException("Order", 1L);
     }
 
+    @GetMapping("/test/conflict")
+    void conflict() {
+        throw new TestConflictException();
+    }
+
     record TestRequest(@NotNull Long requiredField) {
     }
 
@@ -68,6 +73,12 @@ public class ExceptionHandlerTestController {
     static class TestExternalServiceException extends ExternalServiceException {
         TestExternalServiceException() {
             super("TEST_EXTERNAL", "test external service error");
+        }
+    }
+
+    static class TestConflictException extends ConflictException {
+        TestConflictException() {
+            super("TEST_CONFLICT", "test conflict error");
         }
     }
 }

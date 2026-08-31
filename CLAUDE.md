@@ -60,7 +60,8 @@ Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
 * **Stateless:** JWT only (Access Token + Refresh Token). No OAuth2 for inbound user login — there is no third-party login requirement, and adding OAuth2 here would be over-engineering (see Part 6 for where OAuth2 *does* apply — outbound calls to the tax-rate provider).
 * **Login flow:** users authenticate with `account` + `password` (verified against the BCrypt hash, Part 2.2). A soft-deleted user (`delete_at IS NOT NULL`) MUST NOT be able to log in, even with a correct password.
 * **No role/permission model.** Any authenticated user can perform any action on any endpoint. This is intentional and matches the current scope — do not introduce `Role`/`Permission` entities, `@PreAuthorize`, or per-field visibility rules unless explicitly asked.
-* Refresh tokens are persisted in the database (not an external cache) so logout/revocation works without Redis.
+* Refresh tokens are persisted in the database (not an external cache) so logout/revocation works without Redis. **Store only a hash of the token (e.g. SHA-256), never the plaintext value.** Refresh tokens are high-entropy random values, not low-entropy human passwords — BCrypt's salted, non-deterministic output would prevent the fast exact-match DB lookup this needs, so a fast deterministic hash is the correct tool here, distinct from the BCrypt requirement for `Users.password` (Part 2.2).
+* **Refresh token rotation:** each successful `POST /api/auth/refresh` revokes the presented refresh token and issues a brand-new access/refresh pair. A stolen-but-unused refresh token becomes worthless the moment the legitimate client uses it next, since the attacker's copy is now revoked too.
 
 ---
 
@@ -83,7 +84,7 @@ BaseException (abstract)
  ├── UnauthorizedException      → 401
  └── ExternalServiceException   → 502/503, e.g. tax-rate provider timeout
 ```
-Each carries a stable `errorCode`. Adding a new error type means adding one class — the interceptor logic never changes.
+Each carries a stable `errorCode`. Adding a new error type means adding one class — the interceptor logic never changes. **This unified format applies even to rejections produced by the Spring Security filter chain itself** (missing/invalid JWT, e.g.) — a custom `AuthenticationEntryPoint` must render the same `ProblemDetail` JSON shape as `@RestControllerAdvice`, not Spring's default error page. A client should never be able to tell, from response shape alone, whether a 401 came from the filter chain or from application code.
 
 ## 4. Deletion Semantics — Soft Delete Everywhere
 * Every table (`Users`, `ProductCategory`, `Product`, `Order`) carries `create_at`, `update_at`, and a nullable `delete_at` column. Application code never issues a physical `DELETE FROM` — every "delete" operation results in `delete_at` being set to the current UTC timestamp.
@@ -94,6 +95,7 @@ Each carries a stable `errorCode`. Adding a new error type means adding one clas
 * Acting on an already soft-deleted row (PATCH/DELETE) must behave as `404 Not Found`, not silently succeed.
 * `create_at` / `update_at` are populated automatically via `@CreationTimestamp` / `@UpdateTimestamp` on every entity — never set manually by Service code.
 * **Gotcha when combining with `@Version` (Part 8.3):** Hibernate appends an extra `version` bind parameter to a versioned entity's `@SQLDelete` SQL automatically — the custom SQL string must include a matching `AND version = ?` after the PK condition, or `saveAndFlush`/`delete` will fail at flush time with a parameter-binding error. Any entity that gets `@Version` added later must have its `@SQLDelete` SQL updated to match.
+* **Gotcha when other entities reference the row being soft-deleted:** if any other managed entity in the same Hibernate session holds a `@ManyToOne` pointing at a `Users` row that's about to go through `@SQLDelete`, flushing can throw a spurious `TransientObjectException` ("references an unsaved transient instance") even though that entity is fully persisted and untouched — this reproduces regardless of the referencing entity's type, and only shows up with a real DB flush (Mockito can't catch it). When a delete needs to cascade a field change to related rows (e.g. revoking a deleted user's refresh tokens), use a bulk `@Modifying @Query` UPDATE instead of loading the related rows as managed entities into the same transaction — this sidesteps the issue entirely and is more efficient besides. Cover this kind of cascading change with a Testcontainers test, not just Mockito, since the failure mode is DB-flush-specific.
 
 ## 5. Entity Boilerplate (Lombok)
 * Entities use Lombok's `@Getter` at the class level to remove getter boilerplate. **Do not use `@Data` or `@EqualsAndHashCode`/`@ToString` on entities** — these generate `equals()`/`hashCode()`/`toString()` that touch JPA associations, which can trigger lazy-loading, N+1 queries, or infinite recursion on bidirectional relations.
@@ -171,6 +173,7 @@ This is a **design/pseudo-code answer**, not something implemented in the runnin
     - Plain data holders and boilerplate (entities, DTOs, exception classes with no branching logic) don't need this — TDD applies to logic, not to structure.
     - JUnit5 + Mockito for service-layer unit tests, with explicit cases for `totalCost` at zero/negative/large `order_amount`.
     - Testcontainers spins up a real PostgreSQL for repository/integration tests (test-time only — does not imply Docker is used for production deployment).
+    - **Controller tests and the security filter chain:** `@WebMvcTest` classes whose purpose is routing/validation/serialization (e.g. `ProductControllerTest`, `OrderControllerTest`) use `@AutoConfigureMockMvc(addFilters = false)` so the real Spring Security filter chain doesn't intercept them — they should keep testing business-endpoint behavior in isolation from auth. Whether a request is correctly rejected without a valid token, or accepted with one, is verified only in the dedicated authentication test class(es), which do NOT disable filters — that's the one place the real filter chain is meant to run.
 
 ---
 

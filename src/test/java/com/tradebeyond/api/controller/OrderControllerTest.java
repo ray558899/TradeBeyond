@@ -12,6 +12,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tradebeyond.api.config.JwtAuthenticationEntryPoint;
+import com.tradebeyond.api.config.JwtAuthenticationFilter;
 import com.tradebeyond.api.config.SecurityConfig;
 import com.tradebeyond.api.dto.OrderCreateRequest;
 import com.tradebeyond.api.dto.OrderUpdateRequest;
@@ -21,19 +23,28 @@ import com.tradebeyond.api.entity.ProductCategory;
 import com.tradebeyond.api.entity.Users;
 import com.tradebeyond.api.exception.OrderNotFoundException;
 import com.tradebeyond.api.service.OrderService;
+import com.tradebeyond.api.service.TokenService;
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
+/**
+ * 這裡只測業務邏輯，不測認證本身——認證行為由 SecurityAuthenticationTest 獨立驗證，
+ * 用 addFilters = false 讓真正的 SecurityConfig filter chain 不生效。
+ */
 @WebMvcTest(controllers = OrderController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class})
+@AutoConfigureMockMvc(addFilters = false)
+@TestPropertySource(properties = "JWT_SECRET=test-jwt-secret-for-controller-test-0123456789")
 class OrderControllerTest {
 
     @Autowired

@@ -4,25 +4,44 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
- * 這是暫時性設定：Phase 4 只做 Controller 與統一例外處理，JWT 驗證還沒實作，
- * 這裡先放行所有請求（含 /swagger-ui.html），避免 Spring Security 預設的表單登入/401
- * 把這個 Phase 的 MockMvc 測試擋下來。Phase 5 做 JWT（Part 3）時，會把這裡換成
- * 要求登入的版本，並把 /swagger-ui.html 等公開路徑改成明確的白名單。
+ * 正式版：JWT 驗證（Part 3）。/api/auth/register、/api/auth/login、Swagger UI 允許匿名存取，
+ * 其餘所有 endpoint 都必須帶合法的 Authorization: Bearer <token>。
+ * 沒有任何角色/權限檢查——任何登入使用者都能操作任何 Order/User 資源，這是 Part 3
+ * 明確的範圍決定，不加 @PreAuthorize、不加角色欄位。
  */
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter,
+            JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
-                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(
+                                "/api/auth/register", "/api/auth/login", "/api/auth/refresh", "/api/auth/logout")
+                        .permitAll()
+                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                        .anyRequest().authenticated())
                 .httpBasic(httpBasic -> httpBasic.disable())
-                .formLogin(formLogin -> formLogin.disable());
+                .formLogin(formLogin -> formLogin.disable())
+                .exceptionHandling(eh -> eh.authenticationEntryPoint(jwtAuthenticationEntryPoint))
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        // Part 2.2 要求 BCrypt strength >= 12
+        return new BCryptPasswordEncoder(12);
     }
 }

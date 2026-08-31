@@ -5,13 +5,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.tradebeyond.api.entity.Order;
 import com.tradebeyond.api.entity.Product;
 import com.tradebeyond.api.entity.ProductCategory;
+import com.tradebeyond.api.entity.RefreshToken;
 import com.tradebeyond.api.entity.Users;
 import com.tradebeyond.api.repository.OrderRepository;
 import com.tradebeyond.api.repository.ProductCategoryRepository;
 import com.tradebeyond.api.repository.ProductRepository;
+import com.tradebeyond.api.repository.RefreshTokenRepository;
 import com.tradebeyond.api.repository.UsersRepository;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -48,6 +51,9 @@ class UserServiceIntegrationTest {
 
     @Autowired
     private OrderRepository orderRepository;
+
+    @Autowired
+    private RefreshTokenRepository refreshTokenRepository;
 
     @Autowired
     private UserService userService;
@@ -104,5 +110,53 @@ class UserServiceIntegrationTest {
 
         assertThat(userRowCount).isEqualTo(1);
         assertThat(orderRowCount).isEqualTo(1);
+    }
+
+    @Test
+    void deleteUser_revokesActiveRefreshTokens_whenUserAlsoHasOrders() {
+        // 這個測試特意讓同一個使用者「同時」有 Order 跟未撤銷的 RefreshToken，
+        // 在同一個 deleteUser transaction 裡一起被軟刪除/撤銷——這個組合曾經在真實 Hibernate flush
+        // 時炸出 TransientObjectException（RefreshToken 額外呼叫 save() 觸發 merge()，
+        // 跟同一個 transaction 內 Order/User 的軟刪除互相干擾），Mockito 版本的單元測試
+        // 完全模擬不出這個問題，只有打真的 DB 才驗證得到。
+        Users user = new Users();
+        user.setUsername("test-user");
+        user.setAccount("test-account-" + System.nanoTime());
+        user.setPassword(FAKE_BCRYPT_HASH);
+        user = usersRepository.save(user);
+
+        ProductCategory category = new ProductCategory();
+        category.setCategoryName("test-category");
+        category.setTaxRate(new BigDecimal("0.0500"));
+        category = productCategoryRepository.save(category);
+
+        Product product = new Product();
+        product.setProductCategory(category);
+        product.setUnitPrice(new BigDecimal("100.0000"));
+        product = productRepository.save(product);
+
+        Order order = new Order();
+        order.setUser(user);
+        order.setProduct(product);
+        order.setOrderAmount(new BigDecimal("1"));
+        order.setUnitPriceSnapshot(new BigDecimal("100.0000"));
+        order.setTaxRateSnapshot(new BigDecimal("0.0500"));
+        order.setTotalCost(new BigDecimal("105.0000"));
+        orderRepository.save(order);
+
+        RefreshToken refreshToken = new RefreshToken();
+        refreshToken.setUser(user);
+        refreshToken.setToken("test-refresh-token-hash-" + System.nanoTime());
+        refreshToken.setExpiresAt(Instant.now().plusSeconds(3600));
+        refreshToken = refreshTokenRepository.save(refreshToken);
+
+        Long userId = user.getUserId();
+        Long refreshTokenId = refreshToken.getRefreshTokenId();
+
+        userService.deleteUser(userId);
+
+        Timestamp revokedAt = jdbcTemplate.queryForObject(
+                "SELECT revoked_at FROM refresh_token WHERE refresh_token_id = ?", Timestamp.class, refreshTokenId);
+        assertThat(revokedAt).isNotNull();
     }
 }

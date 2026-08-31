@@ -5,22 +5,36 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.tradebeyond.api.config.JwtAuthenticationEntryPoint;
+import com.tradebeyond.api.config.JwtAuthenticationFilter;
 import com.tradebeyond.api.config.SecurityConfig;
 import com.tradebeyond.api.entity.Product;
 import com.tradebeyond.api.entity.ProductCategory;
 import com.tradebeyond.api.exception.ProductNotFoundException;
 import com.tradebeyond.api.service.ProductService;
+import com.tradebeyond.api.service.TokenService;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
+/**
+ * 這裡只測業務邏輯（找不到回 404、正常回 200 等），不測認證本身——
+ * 認證行為由 SecurityAuthenticationTest 獨立驗證，所以用 addFilters = false
+ * 讓真正的 SecurityConfig filter chain 不生效，維持「不用帶 token 也能測」的原意。
+ * SecurityConfig 的 @Bean 方法需要注入 JwtAuthenticationFilter，就算 filter 不生效，
+ * context 啟動時還是要能組出這個 bean，所以一併 import。
+ */
 @WebMvcTest(controllers = ProductController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class})
+@AutoConfigureMockMvc(addFilters = false)
+@TestPropertySource(properties = "JWT_SECRET=test-jwt-secret-for-controller-test-0123456789")
 class ProductControllerTest {
 
     @Autowired
