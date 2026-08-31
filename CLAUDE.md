@@ -31,15 +31,16 @@ Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
 
 ## 1. Backend Is the Only Authority
 * Never trust any value, calculation, or state sent from the client.
-* `POST /api/order` MUST only accept `productId`, `userId`, `order_amount` from the request body.
+* `POST /api/order` MUST only accept `productId`, `userId`, `orderAmount` from the request body (camelCase — the `order_amount` spelling in the original spec/ER diagram is SQL column notation, not a JSON API contract; this project's entire JSON surface uses camelCase, no `@JsonProperty` overrides).
     * ❌ Forbidden: client sends `unitPrice` or `totalCost`.
     * ✅ Mandatory: server looks up `unit_price` and `tax_rate` from the DB and computes `totalCost = order_amount * unit_price * (1 + tax_rate)` using `BigDecimal`.
-* **Tax-rate snapshot:** at order creation time, persist the `tax_rate` used into the Order row (`tax_rate_snapshot`). Do not re-derive it later via a live join to `ProductCategory` — otherwise historical order totals would silently change if the tax rate is later updated.
+* **Snapshot both price inputs, not just tax rate:** at order creation time, persist both `tax_rate_snapshot` and `unit_price_snapshot` into the Order row. Neither is re-derived later via a live join — otherwise a later price or tax-rate change would silently alter historical order totals, or make `PATCH /api/order/{order_id}` inconsistent (tax rate frozen but price not).
+* `PATCH /api/order/{order_id}` only accepts `orderAmount`. The server recomputes `totalCost = orderAmount * unit_price_snapshot * (1 + tax_rate_snapshot)` using the stored snapshots — it never re-queries Product/ProductCategory for this calculation.
 * All request bodies validated with `@Valid` / `@NotNull` / `@Positive` etc. DTOs are strictly separate from Entities.
 
 ## 2. Transport & Credential Security
 * All traffic is served over HTTPS (Cloud Run terminates TLS automatically; do not add a separate reverse proxy).
-* If any password/credential field exists, hash with `BCrypt` (strength ≥ 12). Never log or persist plaintext secrets.
+* `Users.password` is hashed with `BCrypt` (strength ≥ 12) before persistence — never store, log, or return plaintext passwords anywhere, including in test fixtures or logs.
 * JWTs are short-lived; refresh tokens are persisted server-side (see Part 3) so they can be revoked.
 
 ## 3. Rate Limiting (In-Memory, Single Instance)
@@ -57,6 +58,7 @@ Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
 # 🔑 Part 3: Authentication (No RBAC)
 
 * **Stateless:** JWT only (Access Token + Refresh Token). No OAuth2 for inbound user login — there is no third-party login requirement, and adding OAuth2 here would be over-engineering (see Part 6 for where OAuth2 *does* apply — outbound calls to the tax-rate provider).
+* **Login flow:** users authenticate with `account` + `password` (verified against the BCrypt hash, Part 2.2). A soft-deleted user (`delete_at IS NOT NULL`) MUST NOT be able to log in, even with a correct password.
 * **No role/permission model.** Any authenticated user can perform any action on any endpoint. This is intentional and matches the current scope — do not introduce `Role`/`Permission` entities, `@PreAuthorize`, or per-field visibility rules unless explicitly asked.
 * Refresh tokens are persisted in the database (not an external cache) so logout/revocation works without Redis.
 
@@ -83,9 +85,18 @@ BaseException (abstract)
 ```
 Each carries a stable `errorCode`. Adding a new error type means adding one class — the interceptor logic never changes.
 
-## 4. Deletion Semantics
-* `DELETE /api/user/{userId}` MUST cascade-delete that user's Order records inside a single `@Transactional` service method (either explicit deletion in code, or a documented `ON DELETE CASCADE`, with the choice stated in the PR description).
-* This project performs real deletes (matches the literal `DELETE` endpoints given), not soft-delete. If soft-delete is ever wanted later, that's a separate, explicit decision — don't default to it silently.
+## 4. Deletion Semantics — Soft Delete Everywhere
+* Every table (`Users`, `ProductCategory`, `Product`, `Order`) carries `create_at`, `update_at`, and a nullable `delete_at` column. Application code never issues a physical `DELETE FROM` — every "delete" operation results in `delete_at` being set to the current UTC timestamp.
+* **Enforce this at the ORM layer, not just in Service code:** each entity uses Hibernate's `@SQLDelete(sql = "UPDATE <table> SET delete_at = now() WHERE <pk_column> = ?")` paired with `@SQLRestriction("delete_at IS NULL")`. This makes a standard `repository.delete(entity)` call automatically execute the soft-delete UPDATE instead of a real `DELETE FROM` — Service code never needs to manually set `delete_at`, and an accidental "real delete" call becomes effectively impossible.
+* `DELETE /api/order/{order_id}` soft-deletes that Order row via the above mechanism.
+* `DELETE /api/user/{userId}` soft-deletes the User row **and** soft-deletes all of that user's Order rows, in the same `@Transactional` service method (calling `repository.delete(...)` for each — no manual timestamp assignment needed). Reading of the original spec: "all user order references need to be deleted" means the *references are cleaned up* (soft-deleted, consistent with this project's uniform soft-delete policy) — it is not an instruction to bypass soft-delete and physically remove rows.
+* All read paths (GET/PATCH/list queries) MUST exclude soft-deleted rows by default via `@SQLRestriction("delete_at IS NULL")` on each entity.
+* Acting on an already soft-deleted row (PATCH/DELETE) must behave as `404 Not Found`, not silently succeed.
+* `create_at` / `update_at` are populated automatically via `@CreationTimestamp` / `@UpdateTimestamp` on every entity — never set manually by Service code.
+
+## 5. Entity Boilerplate (Lombok)
+* Entities use Lombok's `@Getter` at the class level to remove getter boilerplate. **Do not use `@Data` or `@EqualsAndHashCode`/`@ToString` on entities** — these generate `equals()`/`hashCode()`/`toString()` that touch JPA associations, which can trigger lazy-loading, N+1 queries, or infinite recursion on bidirectional relations.
+* `@Setter` is added per-field, only for fields the Service layer legitimately needs to mutate directly. `create_at`, `update_at` (Hibernate-managed via `@CreationTimestamp`/`@UpdateTimestamp`) and `delete_at` (managed via `@SQLDelete`, above) never get a `@Setter` — there is no legitimate reason for application code to set them directly.
 
 ---
 
@@ -93,9 +104,9 @@ Each carries a stable `errorCode`. Adding a new error type means adding one clas
 
 * This API does **not** run any scheduled/background job. There is no `@Scheduled` anywhere in the codebase. The "sync data to an analytics system every 30 minutes" question is answered as a **design-only** deliverable (diagram/pseudo-code in the write-up) — nothing to implement here.
 * The only async flow in the actual codebase is the order-created notification:
-  1. Publish `OrderCreatedEvent` via `ApplicationEventPublisher`.
-  2. Consume with `@TransactionalEventListener(phase = AFTER_COMMIT)` so it only fires once the order is actually committed (never on a rolled-back transaction).
-  3. Handle the event with `@Async`, backed by a dedicated `ThreadPoolTaskExecutor` (not the default pool), with bounded `maxPoolSize` and `queueCapacity`.
+    1. Publish `OrderCreatedEvent` via `ApplicationEventPublisher`.
+    2. Consume with `@TransactionalEventListener(phase = AFTER_COMMIT)` so it only fires once the order is actually committed (never on a rolled-back transaction).
+    3. Handle the event with `@Async`, backed by a dedicated `ThreadPoolTaskExecutor` (not the default pool), with bounded `maxPoolSize` and `queueCapacity`.
 * **Cloud Run requirement:** enable **"CPU always allocated"** on the service (Part 10). By default, Cloud Run throttles an instance's CPU to near-zero right after the HTTP response is sent, which can starve the `@Async` thread that keeps running afterward. "CPU always allocated" removes that throttling, so the background notification reliably finishes. `min-instances=1` (Part 10) keeps an instance warm and avoids cold starts, but it is a separate setting from CPU allocation — both are needed together.
 * **Known limitation, stated openly:** this mechanism is in-process and not durable — if the instance restarts mid-processing, that one notification is lost. Acceptable at this scope; the documented upgrade path if durability is ever required is a Transactional Outbox table, not introducing Kafka.
 
@@ -115,10 +126,10 @@ This is a **design/pseudo-code answer**, not something implemented in the runnin
 
 # 🧩 Part 7: Domain Model
 
-* **Users:** `user_id (PK)`, `username`
-* **ProductCategory:** `category_id (PK)`, `category_name`, `tax_rate`
-* **Product:** `product_id (PK)`, `product_category_id (FK)`, `unit_price`
-* **Order:** `order_id (PK)`, `user_id (FK)`, `product_id (FK)`, `order_amount`, `tax_rate_snapshot`, `total_cost`, `created_at`, `updated_at`
+* **Users:** `user_id (PK)`, `username`, `account` (unique, login identifier), `password` (BCrypt hash), `create_at`, `update_at`, `delete_at` (nullable, soft-delete marker)
+* **ProductCategory:** `category_id (PK)`, `category_name`, `tax_rate`, `create_at`, `update_at`, `delete_at` (nullable, soft-delete marker)
+* **Product:** `product_id (PK)`, `product_category_id (FK)`, `unit_price`, `create_at`, `update_at`, `delete_at` (nullable, soft-delete marker)
+* **Order:** `order_id (PK)`, `user_id (FK)`, `product_id (FK)`, `order_amount`, `tax_rate_snapshot`, `unit_price_snapshot`, `total_cost`, `create_at`, `update_at`, `delete_at` (nullable, soft-delete marker)
 * Schema changes go through **Flyway** migrations only. No `ddl-auto: update` in any real environment.
 
 ---
@@ -137,18 +148,20 @@ This is a **design/pseudo-code answer**, not something implemented in the runnin
 # ⚡ Part 9: High Availability & Financial Safety
 
 1. **Anti-OOM:**
-   - No `findAll()` without pagination; all list endpoints use `Pageable` with a max page size (e.g. 100).
-   - Any bulk export uses a JPA `Stream`/cursor, never loads >1,000 entities into a `List`.
-   - Every `@Cacheable`/Caffeine cache has an explicit `maximumSize` and TTL.
+    - No `findAll()` without pagination; all list endpoints use `Pageable` with a max page size (e.g. 100).
+    - Any bulk export uses a JPA `Stream`/cursor, never loads >1,000 entities into a `List`.
+    - Every `@Cacheable`/Caffeine cache has an explicit `maximumSize` and TTL.
 
 2. **Concurrency & Timeouts:**
-   - Every outbound HTTP client (tax-rate provider) and the Cloud SQL connection pool (HikariCP) set explicit `connectTimeout` (≤3s) and `readTimeout` (≤5s).
-   - `POST /api/order` supports an `Idempotency-Key` header if duplicate-submission risk matters, validated against a bounded cache or DB record.
-   - If inventory/balance decrement logic is ever added, use `SELECT ... FOR UPDATE` with an explicit query timeout.
+    - Every outbound HTTP client (tax-rate provider) and the Cloud SQL connection pool (HikariCP) set explicit `connectTimeout` (≤3s) and `readTimeout` (≤5s).
+    - `POST /api/order` supports an `Idempotency-Key` header if duplicate-submission risk matters, validated against a bounded cache or DB record.
+    - If inventory/balance decrement logic is ever added, use `SELECT ... FOR UPDATE` with an explicit query timeout.
 
-3. **Testing:**
-   - JUnit5 + Mockito for service-layer unit tests, with explicit cases for `totalCost` at zero/negative/large `order_amount`.
-   - Testcontainers spins up a real PostgreSQL for repository/integration tests (test-time only — does not imply Docker is used for production deployment).
+3. **Testing (TDD-Mandatory for Business Logic):**
+    - Any Service-layer method that contains a calculation, conditional branch, or multi-step business rule (e.g. `totalCost` math, cascading soft-delete, "not found" exception paths) MUST be written test-first: write the failing test, run it to confirm it fails for the right reason (red), then write the minimum implementation to make it pass (green), then refactor if needed. Do not implement the method first and backfill tests afterward.
+    - Plain data holders and boilerplate (entities, DTOs, exception classes with no branching logic) don't need this — TDD applies to logic, not to structure.
+    - JUnit5 + Mockito for service-layer unit tests, with explicit cases for `totalCost` at zero/negative/large `order_amount`.
+    - Testcontainers spins up a real PostgreSQL for repository/integration tests (test-time only — does not imply Docker is used for production deployment).
 
 ---
 
@@ -156,18 +169,18 @@ This is a **design/pseudo-code answer**, not something implemented in the runnin
 
 * **Compute:** Cloud Run, deployed from source via Google Cloud Buildpacks (`gcloud run deploy --source .`) so no hand-maintained Dockerfile is required.
 * **Instance settings:**
-  - `min-instances=1` — keeps one instance always running, avoiding cold starts.
-  - `max-instances=1` — this project intentionally runs as a single instance; no horizontal scaling, no distributed-state concerns (matches Part 2.3 and Part 8.6).
-  - **"CPU always allocated"** — required so the `@Async` notification (Part 5) can finish running after the HTTP response is returned, instead of being CPU-throttled.
+    - `min-instances=1` — keeps one instance always running, avoiding cold starts.
+    - `max-instances=1` — this project intentionally runs as a single instance; no horizontal scaling, no distributed-state concerns (matches Part 2.3 and Part 8.6).
+    - **"CPU always allocated"** — required so the `@Async` notification (Part 5) can finish running after the HTTP response is returned, instead of being CPU-throttled.
 * **Database:** Cloud SQL for PostgreSQL, accessed via the **Cloud SQL Auth Proxy / Cloud SQL Java Connector** over a Unix domain socket — never over a public IP.
 * **Secrets:** DB credentials, JWT signing secret, and the third-party OAuth2 client secret all live in **Secret Manager**, mounted into Cloud Run as environment variables/secret references. Nothing sensitive is ever committed to the repo.
 * **Custom domain:** mapped directly to the Cloud Run service; TLS is Google-managed automatically.
 * **CI/CD (GitHub Actions):**
-  1. On push to `main`: run unit + integration tests (Testcontainers).
-  2. Run Flyway migrations against Cloud SQL as an explicit pipeline step.
-  3. Build and push the container image to Artifact Registry.
-  4. `gcloud run deploy` the new revision.
-  5. Smoke-test `/actuator/health` on the deployed revision before considering the deploy successful.
+    1. On push to `main`: run unit + integration tests (Testcontainers).
+    2. Run Flyway migrations against Cloud SQL as an explicit pipeline step.
+    3. Build and push the container image to Artifact Registry.
+    4. `gcloud run deploy` the new revision.
+    5. Smoke-test `/actuator/health` on the deployed revision before considering the deploy successful.
 
 ---
 
