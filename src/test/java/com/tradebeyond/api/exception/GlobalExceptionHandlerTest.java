@@ -5,8 +5,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.tradebeyond.api.config.InMemoryRateLimiter;
 import com.tradebeyond.api.config.JwtAuthenticationEntryPoint;
 import com.tradebeyond.api.config.JwtAuthenticationFilter;
+import com.tradebeyond.api.config.RateLimitFilter;
 import com.tradebeyond.api.config.SecurityConfig;
 import com.tradebeyond.api.service.TokenService;
 import org.junit.jupiter.api.Test;
@@ -26,7 +28,8 @@ import org.springframework.test.web.servlet.MockMvc;
  * filter chain 不生效（認證行為由 SecurityAuthenticationTest 獨立驗證）。
  */
 @WebMvcTest(controllers = ExceptionHandlerTestController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class,
+        RateLimitFilter.class, InMemoryRateLimiter.class})
 @AutoConfigureMockMvc(addFilters = false)
 @TestPropertySource(properties = "JWT_SECRET=test-jwt-secret-for-controller-test-0123456789")
 class GlobalExceptionHandlerTest {

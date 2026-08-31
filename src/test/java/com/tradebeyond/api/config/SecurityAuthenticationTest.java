@@ -29,7 +29,8 @@ import org.springframework.test.web.servlet.MockMvc;
  * 這裡只在乎「有沒有帶合法 token」這件事。
  */
 @WebMvcTest(controllers = ProductController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class,
+        RateLimitFilter.class, InMemoryRateLimiter.class})
 @TestPropertySource(properties = "JWT_SECRET=test-jwt-secret-for-security-filter-test-0123456789")
 class SecurityAuthenticationTest {
 

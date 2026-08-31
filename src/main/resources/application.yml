@@ -30,6 +30,10 @@ server:
 app:
   jwt:
     secret: ${JWT_SECRET}
+  rate-limit:
+    # 每小時每個 key（已驗證使用者用 userId，匿名用 client IP）可呼叫的次數上限（Part 2.3）。
+    # 測試時會用 @TestPropertySource 覆蓋成很小的數字，不需要真的打好幾千次請求才能觸發 429。
+    requests-per-hour: ${RATE_LIMIT_REQUESTS_PER_HOUR:5000}
 
 springdoc:
   api-docs:

@@ -12,8 +12,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tradebeyond.api.config.InMemoryRateLimiter;
 import com.tradebeyond.api.config.JwtAuthenticationEntryPoint;
 import com.tradebeyond.api.config.JwtAuthenticationFilter;
+import com.tradebeyond.api.config.RateLimitFilter;
 import com.tradebeyond.api.config.SecurityConfig;
 import com.tradebeyond.api.dto.OrderCreateRequest;
 import com.tradebeyond.api.dto.OrderUpdateRequest;
@@ -42,7 +44,8 @@ import org.springframework.test.web.servlet.MockMvc;
  * 用 addFilters = false 讓真正的 SecurityConfig filter chain 不生效。
  */
 @WebMvcTest(controllers = OrderController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class,
+        RateLimitFilter.class, InMemoryRateLimiter.class})
 @AutoConfigureMockMvc(addFilters = false)
 @TestPropertySource(properties = "JWT_SECRET=test-jwt-secret-for-controller-test-0123456789")
 class OrderControllerTest {

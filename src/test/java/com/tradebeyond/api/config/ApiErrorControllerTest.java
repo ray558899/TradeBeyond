@@ -27,7 +27,8 @@ import org.springframework.test.web.servlet.MockMvc;
  * GlobalExceptionHandlerTest 的既有模式把它跟依賴一起 @Import 進來，讓 context 能啟動。
  */
 @WebMvcTest(controllers = ApiErrorController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class,
+        RateLimitFilter.class, InMemoryRateLimiter.class})
 @AutoConfigureMockMvc(addFilters = false)
 @TestPropertySource(properties = "JWT_SECRET=test-jwt-secret-for-api-error-controller-test-0123456789")
 class ApiErrorControllerTest {

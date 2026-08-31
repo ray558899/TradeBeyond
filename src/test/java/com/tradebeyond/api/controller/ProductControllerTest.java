@@ -5,8 +5,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.tradebeyond.api.config.InMemoryRateLimiter;
 import com.tradebeyond.api.config.JwtAuthenticationEntryPoint;
 import com.tradebeyond.api.config.JwtAuthenticationFilter;
+import com.tradebeyond.api.config.RateLimitFilter;
 import com.tradebeyond.api.config.SecurityConfig;
 import com.tradebeyond.api.entity.Product;
 import com.tradebeyond.api.entity.ProductCategory;
@@ -32,7 +34,8 @@ import org.springframework.test.web.servlet.MockMvc;
  * context 啟動時還是要能組出這個 bean，所以一併 import。
  */
 @WebMvcTest(controllers = ProductController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class,
+        RateLimitFilter.class, InMemoryRateLimiter.class})
 @AutoConfigureMockMvc(addFilters = false)
 @TestPropertySource(properties = "JWT_SECRET=test-jwt-secret-for-controller-test-0123456789")
 class ProductControllerTest {
