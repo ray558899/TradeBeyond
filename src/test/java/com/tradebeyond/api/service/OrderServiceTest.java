@@ -176,4 +176,15 @@ class OrderServiceTest {
 
         verify(orderRepository).delete(existing);
     }
+
+    @Test
+    void findOrdersByUserId_throwsUserNotFoundException_whenUserDoesNotExist() {
+        // 查詢不存在的 userId 必須回 404（USER_NOT_FOUND），不能默默回傳空陣列，
+        // 且要在查 Order 之前就先失敗，不必浪費一次不會用到結果的 Order 查詢
+        when(userService.getById(99L)).thenThrow(new UserNotFoundException(99L));
+
+        assertThatThrownBy(() -> orderService.findOrdersByUserId(99L))
+                .isInstanceOf(UserNotFoundException.class);
+        verifyNoInteractions(orderRepository);
+    }
 }

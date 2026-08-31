@@ -1,6 +1,7 @@
 package com.tradebeyond.api.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.tradebeyond.api.entity.Order;
 import com.tradebeyond.api.entity.Product;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -91,5 +93,49 @@ class OrderServiceIntegrationTest {
         assertThat(result)
                 .extracting(Order::getOrderId)
                 .containsExactly(keep.getOrderId());
+    }
+
+    @Test
+    void concurrentPatch_throwsObjectOptimisticLockingFailureException_whenVersionIsStale() {
+        // 用 mock repository 測不出樂觀鎖是否真的生效，必須打真的 DB 才能驗證
+        // "第二個帶著過期 version 的寫入" 會不會被 Hibernate 擋下來。
+        Users user = new Users();
+        user.setUsername("test-user");
+        user.setAccount("test-account-" + System.nanoTime());
+        user.setPassword(FAKE_BCRYPT_HASH);
+        user = usersRepository.save(user);
+
+        ProductCategory category = new ProductCategory();
+        category.setCategoryName("test-category");
+        category.setTaxRate(new BigDecimal("0.0500"));
+        category = productCategoryRepository.save(category);
+
+        Product product = new Product();
+        product.setProductCategory(category);
+        product.setUnitPrice(new BigDecimal("100.0000"));
+        product = productRepository.save(product);
+
+        Order order = new Order();
+        order.setUser(user);
+        order.setProduct(product);
+        order.setOrderAmount(new BigDecimal("1"));
+        order.setUnitPriceSnapshot(new BigDecimal("100.0000"));
+        order.setTaxRateSnapshot(new BigDecimal("0.0500"));
+        order.setTotalCost(new BigDecimal("105.0000"));
+        order = orderRepository.save(order);
+        Long orderId = order.getOrderId();
+
+        // 模擬兩個併發 PATCH 請求，各自先讀到同一個 version 的快照
+        Order snapshotA = orderRepository.findById(orderId).orElseThrow();
+        Order snapshotB = orderRepository.findById(orderId).orElseThrow();
+
+        // 請求 A 先送出並成功提交 -> DB 內的 version 往前推進一格
+        snapshotA.setOrderAmount(new BigDecimal("3"));
+        orderRepository.saveAndFlush(snapshotA);
+
+        // 請求 B 帶著已經過期的 version 再送出 -> 必須被樂觀鎖擋下來，而不是靜默覆蓋掉 A 剛寫入的結果
+        snapshotB.setOrderAmount(new BigDecimal("5"));
+        assertThatThrownBy(() -> orderRepository.saveAndFlush(snapshotB))
+                .isInstanceOf(ObjectOptimisticLockingFailureException.class);
     }
 }

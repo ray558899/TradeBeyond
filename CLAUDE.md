@@ -93,6 +93,7 @@ Each carries a stable `errorCode`. Adding a new error type means adding one clas
 * All read paths (GET/PATCH/list queries) MUST exclude soft-deleted rows by default via `@SQLRestriction("delete_at IS NULL")` on each entity.
 * Acting on an already soft-deleted row (PATCH/DELETE) must behave as `404 Not Found`, not silently succeed.
 * `create_at` / `update_at` are populated automatically via `@CreationTimestamp` / `@UpdateTimestamp` on every entity — never set manually by Service code.
+* **Gotcha when combining with `@Version` (Part 8.3):** Hibernate appends an extra `version` bind parameter to a versioned entity's `@SQLDelete` SQL automatically — the custom SQL string must include a matching `AND version = ?` after the PK condition, or `saveAndFlush`/`delete` will fail at flush time with a parameter-binding error. Any entity that gets `@Version` added later must have its `@SQLDelete` SQL updated to match.
 
 ## 5. Entity Boilerplate (Lombok)
 * Entities use Lombok's `@Getter` at the class level to remove getter boilerplate. **Do not use `@Data` or `@EqualsAndHashCode`/`@ToString` on entities** — these generate `equals()`/`hashCode()`/`toString()` that touch JPA associations, which can trigger lazy-loading, N+1 queries, or infinite recursion on bidirectional relations.
@@ -136,9 +137,17 @@ This is a **design/pseudo-code answer**, not something implemented in the runnin
 
 # ❗ Part 8: Core Engineering Principles
 
+0. **SOLID, applied pragmatically:**
+    - **SRP** — each Service class owns one entity's business logic (`OrderService`, `UserService`, `ProductService`); a method that's doing two unrelated jobs gets split.
+    - **OCP** — the exception hierarchy (Part 4.3) and the `RateLimiter` abstraction (Part 2.3) are the intended extension points: add a new subclass/implementation, don't modify existing branching logic to bolt on new cases.
+    - **LSP** — any subclass (e.g. a new `ResourceNotFoundException` subtype) must be usable anywhere the parent type is expected, with no surprise behavior.
+    - **ISP** — don't force a class to depend on methods it doesn't use; this is a reason to keep Repository interfaces minimal (Part 2 decision: no unused custom query methods), not a reason to slice them into many tiny interfaces.
+    - **DIP** — Services depend on Spring Data repository interfaces and on abstractions like `RateLimiter`, never on concrete DB/HTTP client classes directly.
+    - **This does not override Rule 1.2 (Simplicity First).** SOLID is not a license to add an interface for every class "just in case," wrap single-implementation classes in unnecessary abstractions, or split a 20-line method into five one-line methods for the sake of SRP theater. If applying a SOLID principle would introduce an abstraction with only one real implementation and no foreseeable second one, don't — that's over-engineering, not good design. When the two rules seem to conflict, Simplicity First wins for structure; SOLID wins for *how a given piece of logic is organized once it exists*.
+
 1. **KISS:** readability over clever one-liners.
 2. **Database-backed state:** other than the bounded rate-limit cache (Part 2.3), don't keep business state in unbound in-memory structures.
-3. **Optimistic locking:** use `@Version` on `Order` if concurrent PATCH is possible.
+3. **Optimistic locking:** `Order` has `@Version` (Long, incremented by Hibernate). Scope decision: this protects against two near-simultaneous writes racing within the same short-lived transaction window (the scenario a `PATCH` under real concurrent load hits) — it does **not** implement client-submitted-version staleness detection (e.g. an `If-Match` header or a `version` field in `OrderUpdateRequest` compared against what the client originally read). The Service always re-fetches the entity fresh inside each request before mutating it. Building full client-aware optimistic concurrency is out of scope unless explicitly requested — the current design is a deliberate, documented boundary, not an oversight.
 4. **No hardcoded secrets:** every credential comes from Secret Manager via environment variables, never committed to Git or hardcoded in `application.yml`.
 5. **Single source of truth:** the backend owns all business logic and calculations; the client is a display layer only.
 6. **No distributed-systems design for this project.** One Cloud Run instance, one database, no message broker, no cache cluster. Any "how would this scale" question is answered in writing (Part 6), not by actually building distributed infrastructure.

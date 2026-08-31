@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.Instant;
 import lombok.Getter;
@@ -27,7 +28,9 @@ import org.hibernate.annotations.UpdateTimestamp;
 @Entity
 @Table(name = "orders")
 @Getter
-@SQLDelete(sql = "UPDATE orders SET delete_at = now() WHERE order_id = ?")
+// 有 @Version 的 Entity，Hibernate 會多綁一個 version 參數（軟刪除本身也要受樂觀鎖保護），
+// 所以這裡的 WHERE 子句要多一個 "AND version = ?"，只有一個 order_id 佔位符會在 flush 時綁參數失敗。
+@SQLDelete(sql = "UPDATE orders SET delete_at = now() WHERE order_id = ? AND version = ?")
 @SQLRestriction("delete_at IS NULL")
 public class Order {
 
@@ -61,6 +64,10 @@ public class Order {
     @Setter
     @Column(name = "total_cost", nullable = false, precision = 19, scale = 4)
     private BigDecimal totalCost;
+
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
 
     @CreationTimestamp
     @Column(name = "create_at", nullable = false, updatable = false)

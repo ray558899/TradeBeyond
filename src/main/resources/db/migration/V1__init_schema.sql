@@ -49,6 +49,7 @@ CREATE TABLE orders (
     unit_price_snapshot NUMERIC(19, 4) NOT NULL, -- 下單當下的 unit_price 快照，重算 total_cost 一律用這個值，不重查 Product
     tax_rate_snapshot   NUMERIC(5, 4)  NOT NULL, -- 下單當下的 tax_rate 快照，不隨後續調整而變動
     total_cost          NUMERIC(19, 4) NOT NULL,
+    version             BIGINT         NOT NULL DEFAULT 0, -- 樂觀鎖版本號，PATCH 併發衝突時由 Hibernate 自動遞增與檢查
     create_at           TIMESTAMPTZ    NOT NULL DEFAULT now(),
     update_at           TIMESTAMPTZ    NOT NULL DEFAULT now(),
     delete_at           TIMESTAMPTZ    NULL,
