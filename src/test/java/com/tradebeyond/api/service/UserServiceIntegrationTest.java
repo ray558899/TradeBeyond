@@ -70,6 +70,8 @@ class UserServiceIntegrationTest {
 
     @Test
     void deleteUser_softDeletesUserAndAllTheirOrders_withoutRemovingRows() {
+        // 對真實 DB 驗證：刪除使用者要連帶軟刪除該使用者的所有訂單，且兩者都只是設定
+        // delete_at（@SQLDelete 轉成的 UPDATE），資料列本身還在，不是真的 DELETE FROM
         Users user = new Users();
         user.setUsername("test-user");
         user.setAccount("test-account-" + System.nanoTime());

@@ -38,6 +38,8 @@ class ApiErrorControllerTest {
 
     @Test
     void notFoundStatus_mapsToProblemDetail_withNotFoundErrorCode() throws Exception {
+        // 模擬容器 ERROR dispatch 帶著 404 狀態碼轉發過來，驗證 ApiErrorController 有把它
+        // 轉成統一的 ProblemDetail 格式（errorCode: NOT_FOUND），而不是 Spring Boot 內建的白板錯誤頁
         mockMvc.perform(get("/error")
                         .requestAttr(RequestDispatcher.ERROR_STATUS_CODE, 404)
                         .requestAttr(RequestDispatcher.ERROR_REQUEST_URI, "/api/this-path-does-not-exist"))

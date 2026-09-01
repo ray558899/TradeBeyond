@@ -54,6 +54,8 @@ class SecurityErrorDispatchIntegrationTest {
 
     @Test
     void nonexistentPath_returns404NotBlockedAs401_whenValidTokenProvided() {
+        // 帶合法 token 打一個真的不存在的路徑，應該回 404（資源不存在），
+        // 不是被容器 ERROR dispatch 的驗證空窗誤判成 401（Part 3 記錄的已知問題，這裡驗證已修正）
         String token = tokenService.generateAccessToken(1L);
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(token);

@@ -49,6 +49,8 @@ class AuthServiceIntegrationTest {
 
     @Test
     void login_throwsInvalidCredentialsException_whenUserIsSoftDeleted() {
+        // 帳號已被軟刪除時，就算密碼完全正確，也要跟「帳號不存在」丟出同一種例外，
+        // 靠 Users Entity 的 @SQLRestriction 在真實 DB 查詢時自動排除，不能讓已刪除帳號登入成功
         Users user = new Users();
         user.setUsername("test-user");
         user.setAccount("test-account-" + System.nanoTime());

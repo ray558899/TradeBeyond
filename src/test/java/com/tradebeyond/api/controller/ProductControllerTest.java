@@ -48,6 +48,7 @@ class ProductControllerTest {
 
     @Test
     void getProduct_returns200WithProductBody_whenProductExists() throws Exception {
+        // 商品存在時，應該回 200 並帶回商品的 DTO 資料（productId、所屬分類、單價）
         ProductCategory category = new ProductCategory();
         ReflectionTestUtils.setField(category, "categoryId", 10L);
 

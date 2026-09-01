@@ -85,6 +85,7 @@ class OrderServiceIntegrationTest {
 
     @Test
     void findOrdersByUserId_excludesSoftDeletedOrders() {
+        // 對真實 DB 驗證：查詢清單時，已軟刪除的訂單要被排除，只回傳還沒被刪除的
         Users user = new Users();
         user.setUsername("test-user");
         user.setAccount("test-account-" + System.nanoTime());

@@ -45,6 +45,7 @@ class SecurityAuthenticationTest {
 
     @Test
     void protectedEndpoint_returns401_whenNoTokenProvided() throws Exception {
+        // 沒帶 Authorization header 打受保護 endpoint，真實 filter chain 必須擋成 401
         mockMvc.perform(get("/api/product/1"))
                 .andExpect(status().isUnauthorized());
     }
@@ -84,6 +85,8 @@ class SecurityAuthenticationTest {
 
     @Test
     void openApiJsonSpec_bareUrl_isNotBlockedByFilterChain_whenNoTokenProvided() throws Exception {
+        // /v3/api-docs 這個裸網址本身（不是 /v3/api-docs/** 底下的子路徑）也要在白名單內，
+        // 匿名呼叫不該被 filter chain 擋成 401
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(401));
     }
@@ -127,6 +130,7 @@ class SecurityAuthenticationTest {
 
     @Test
     void protectedEndpoint_returns200_whenValidTokenProvided() throws Exception {
+        // 帶合法的 Authorization: Bearer <token> 打受保護 endpoint，真實 filter chain 要正常放行
         ProductCategory category = new ProductCategory();
         ReflectionTestUtils.setField(category, "categoryId", 10L);
         Product product = new Product();

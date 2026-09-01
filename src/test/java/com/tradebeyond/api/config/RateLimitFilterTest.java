@@ -53,6 +53,8 @@ class RateLimitFilterTest {
 
     @Test
     void exceedingLimit_returns429WithProblemDetailAndRateLimitHeaders_forAuthenticatedUser() throws Exception {
+        // 已登入使用者連續打受保護 endpoint 超過限流上限，驗證每次回應都帶 X-RateLimit-* header，
+        // 超限後回 429 + 統一的 ProblemDetail 格式
         stubProduct(1L);
         String token = tokenService.generateAccessToken(9001L);
 
@@ -85,6 +87,8 @@ class RateLimitFilterTest {
 
     @Test
     void differentAuthenticatedUsers_areRateLimitedIndependently() throws Exception {
+        // 一個已登入使用者被限流擋下來後，換一個不同的使用者打同一個 endpoint 應該不受影響，
+        // 證明限流是以 userId 為單位各自獨立計算
         stubProduct(1L);
         String userAToken = tokenService.generateAccessToken(9002L);
         String userBToken = tokenService.generateAccessToken(9003L);

@@ -241,6 +241,7 @@ class OrderServiceTest {
 
     @Test
     void findOrdersByUserId_returnsOrders_whenCallerRequestsOwnUserId() {
+        // 查詢自己的訂單（路徑 userId 跟目前登入者一致）應該正常回傳清單，不會被歸屬檢查擋下來
         SecurityContextTestSupport.authenticateAs(1L);
         when(userService.getById(1L)).thenReturn(new Users());
         Order order = new Order();

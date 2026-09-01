@@ -61,6 +61,7 @@ class AuthServiceTest {
 
     @Test
     void login_returnsTokenResponse_whenAccountAndPasswordAreCorrect() {
+        // 帳密正確時，登入應該回傳完整的 TokenResponse（accessToken、refreshToken、tokenType、expiresIn）
         Users user = userWithHashedPassword("hashed-value");
         when(usersRepository.findByAccount("myaccount")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("correct-password", "hashed-value")).thenReturn(true);
@@ -103,6 +104,7 @@ class AuthServiceTest {
 
     @Test
     void login_throwsInvalidCredentialsException_whenAccountDoesNotExist() {
+        // 帳號不存在時要丟 InvalidCredentialsException，不能讓 client 知道「帳號根本不存在」這件事
         when(usersRepository.findByAccount("no-such-account")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.login(new LoginRequest("no-such-account", "any-password")))
@@ -111,6 +113,7 @@ class AuthServiceTest {
 
     @Test
     void login_throwsInvalidCredentialsException_whenPasswordIsWrong() {
+        // 帳號存在但密碼錯誤時，一樣要丟 InvalidCredentialsException
         Users user = userWithHashedPassword("hashed-value");
         when(usersRepository.findByAccount("myaccount")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("wrong-password", "hashed-value")).thenReturn(false);
@@ -156,6 +159,7 @@ class AuthServiceTest {
 
     @Test
     void refresh_throwsInvalidRefreshTokenException_whenTokenHashIsNotFound() {
+        // 傳入的 refresh token 雜湊值在 DB 裡完全查不到（從沒發過或已被清除）時要丟 InvalidRefreshTokenException
         when(tokenService.hashRefreshToken("raw-refresh-token")).thenReturn("stored-hash-value");
         when(refreshTokenRepository.findByTokenHash("stored-hash-value")).thenReturn(Optional.empty());
 
@@ -165,6 +169,8 @@ class AuthServiceTest {
 
     @Test
     void refresh_throwsInvalidRefreshTokenException_whenTokenIsRevoked() {
+        // token 存在但已經被撤銷過（revokedAt 有值）時要丟 InvalidRefreshTokenException，
+        // 不能讓已撤銷的 token 繼續換發新的 access/refresh token
         Users user = userWithHashedPassword("hashed-value");
         RefreshToken revoked = storedRefreshToken(user, Instant.now().plusSeconds(3600), Instant.now().minusSeconds(60));
         when(tokenService.hashRefreshToken("raw-refresh-token")).thenReturn("stored-hash-value");
@@ -176,6 +182,7 @@ class AuthServiceTest {
 
     @Test
     void refresh_throwsInvalidRefreshTokenException_whenTokenIsExpired() {
+        // token 存在也還沒被撤銷，但已經過了 expiresAt 時要丟 InvalidRefreshTokenException
         Users user = userWithHashedPassword("hashed-value");
         RefreshToken expired = storedRefreshToken(user, Instant.now().minusSeconds(60), null);
         when(tokenService.hashRefreshToken("raw-refresh-token")).thenReturn("stored-hash-value");
@@ -219,6 +226,7 @@ class AuthServiceTest {
 
     @Test
     void logout_revokesToken_whenTokenExistsAndNotYetRevoked() {
+        // token 存在且還沒被撤銷時，登出應該把它標記成已撤銷（設定 revokedAt），之後就不能再拿來用
         Users user = userWithHashedPassword("hashed-value");
         RefreshToken active = storedRefreshToken(user, Instant.now().plusSeconds(3600), null);
         when(tokenService.hashRefreshToken("raw-refresh-token")).thenReturn("stored-hash-value");
