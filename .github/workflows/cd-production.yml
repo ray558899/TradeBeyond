@@ -72,9 +72,35 @@ jobs:
 
       - name: Smoke test /actuator/health on the custom domain
         run: |
-          response=$(curl -sf https://test.tbpurity.com/actuator/health)
-          echo "回應內容：$response"
-          if [ "$response" != '{"status":"UP"}' ]; then
-            echo "健康檢查回應內容不符預期，部署後端點異常" >&2
-            exit 1
-          fi
+          # Cloud Run 回報部署完成，跟 Spring Boot app 真正啟動完畢（連上 Cloud SQL、
+          # 跑完 Flyway、組完 Security bean）之間有幾秒到十幾秒的空窗，直接打一次
+          # 不通過就判失敗太急躁——改成重試：最多 10 次、每次間隔 5 秒（最多等 50 秒）。
+          url="https://test.tbpurity.com/actuator/health"
+          max_attempts=10
+          interval_seconds=5
+          status="000"
+
+          for attempt in $(seq 1 "$max_attempts"); do
+            # 不用 curl -f：-f 遇到非 2xx 會直接讓 curl 回傳錯誤、連狀態碼本身都拿不到，
+            # 不利於印出診斷資訊；用 -w "%{http_code}" 純數字狀態碼自己判斷。
+            # || echo "000"：curl 本身連線失敗（DNS、連線被拒等）時不要讓 set -e 直接
+            # 中止整個 step，一樣要進到重試迴圈，而不是第一次就整個 fail 掉。
+            status=$(curl -s -o /dev/null -w "%{http_code}" "$url" || echo "000")
+
+            if [ "$status" = "200" ]; then
+              echo "健康檢查成功（第 $attempt/$max_attempts 次嘗試，狀態碼 200）"
+              exit 0
+            fi
+
+            echo "第 $attempt/$max_attempts 次嘗試：狀態碼 $status，還不是 200"
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              sleep "$interval_seconds"
+            fi
+          done
+
+          echo "健康檢查在 $max_attempts 次嘗試內都沒有拿到 200，判定部署失敗" >&2
+          echo "最後一次狀態碼：$status" >&2
+          echo "最後一次 response body：" >&2
+          curl -s "$url" >&2 || echo "（擷取 response body 時發生連線錯誤）" >&2
+          exit 1
