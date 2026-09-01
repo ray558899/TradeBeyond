@@ -38,6 +38,9 @@ public class SecurityConfig {
                         // 回應的內容本來就是由 ApiErrorController 依實際狀態碼決定，不會洩漏比原本
                         // 錯誤更多的資訊。
                         .requestMatchers("/error").permitAll()
+                        // Part 10：CD pipeline 的 smoke test 跟 GCP Uptime Check 都會打
+                        // /actuator/health，兩者都不會、也不該被要求先帶 JWT，所以必須 permitAll。
+                        .requestMatchers("/actuator/health").permitAll()
                         // 明確列舉，不用 "/swagger-ui**"/"/v3/api-docs**" 這種拿掉斜線的寫法：
                         // Spring 6 的 PathPatternParser 要求 "**" 必須是獨立的路徑片段（前面要有 "/"），
                         // 接在字串中間不會有跨層級的效果，實測會讓 /swagger-ui/index.html、

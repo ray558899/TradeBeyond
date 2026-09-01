@@ -1,0 +1,10 @@
+target/
+.git/
+.idea/
+.github/
+.mvn/
+.env
+.env.example
+*.md
+docker-compose.yml
+mvnw.cmd

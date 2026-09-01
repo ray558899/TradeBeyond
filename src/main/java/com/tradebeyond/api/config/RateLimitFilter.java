@@ -62,8 +62,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // Swagger UI（頁面載入時會自動打好幾個背景請求）就把自己匿名 IP 的配額用掉，
     // 干擾到後續真正要測試的業務請求。/error 則是 servlet 容器內部轉發的目的地，
     // 不是外部呼叫方直接打的路徑，該計費的是原始請求，不是這次內部轉發。
+    // /actuator/health（Part 10）也要永遠排除：GCP Uptime Check、CD pipeline 的 smoke test
+    // 都會定期打這個 endpoint，這些呼叫來自匿名、跟其他匿名流量共用同一個 IP-based 限流
+    // bucket——如果不排除，健康檢查有可能被同一個來源的其他匿名請求（或健康檢查自己頻繁
+    // 呼叫累積）誤擋成 429，導致 Cloud Run 或 CD 誤判服務不健康。
     private static final Set<String> EXACT_EXCLUDED_PATHS =
-            Set.of("/error", "/swagger-ui.html", "/v3/api-docs", "/v3/api-docs.yaml");
+            Set.of("/error", "/swagger-ui.html", "/v3/api-docs", "/v3/api-docs.yaml", "/actuator/health");
     private static final List<String> PREFIX_EXCLUDED_PATHS =
             List.of("/swagger-ui/", "/v3/api-docs/", "/webjars/swagger-ui/");
 

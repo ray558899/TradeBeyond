@@ -24,6 +24,14 @@ spring:
 
 server:
   port: ${PORT:8080}
+  # Part 10：Cloud Run 邊界終止 TLS 後用 http 轉發進 container，並附加
+  # X-Forwarded-Proto: https 這類 header 告知原始 scheme。沒有這個設定，
+  # request.getScheme()/isSecure() 會誤判成 http，springdoc 產生的 OpenAPI
+  # servers 欄位也會跟著變成 http://，導致 Swagger UI 在瀏覽器發請求時被
+  # mixed-content 安全機制擋下來。"framework" 策略讓 Spring MVC（而不是
+  # servlet 容器層級）解析並信任 X-Forwarded-Proto/Host/Port，本機
+  # docker-compose 環境沒有任何反向代理、不會帶這些 header，行為不受影響。
+  forward-headers-strategy: framework
 
 # JWT 簽章密鑰：不設任何預設值，必須由環境變數（本機 .env 或正式環境 Secret Manager）提供。
 # 目前尚未實作簽發/驗證邏輯，此處僅先佔位。
@@ -40,3 +48,17 @@ springdoc:
     path: /v3/api-docs
   swagger-ui:
     path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 只開 health，不要整組 actuator endpoint 都暴露出去（Part 10：這個 endpoint
+        # 是給 CD pipeline 的 smoke test 跟 GCP Uptime Check 用的，是匿名可打的 permitAll
+        # 路徑，不能連帶把 env/beans 這類會洩漏內部資訊的 endpoint 也一起放出去）。
+        include: health
+  endpoint:
+    health:
+      # 匿名可存取（SecurityConfig 的 permitAll），不回傳元件層級細節（DB 連線狀態等），
+      # 只回傳整體 UP/DOWN，避免對外洩漏內部依賴的健康狀態細節。
+      show-details: never

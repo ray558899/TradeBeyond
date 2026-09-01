@@ -22,6 +22,7 @@
         <springdoc-openapi.version>2.9.0</springdoc-openapi.version>
         <jjwt.version>0.12.6</jjwt.version>
         <bucket4j.version>8.14.0</bucket4j.version>
+        <postgres-socket-factory.version>1.19.1</postgres-socket-factory.version>
     </properties>
 
     <dependencies>
@@ -47,8 +48,25 @@
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <!-- Part 10：正式環境透過 Unix domain socket 連 Cloud SQL，不走公開 IP。
+                 這個依賴宣告 org.postgresql:postgresql 為 provided（見它自己的 pom），
+                 靠專案既有的 postgresql 驅動（由 Spring Boot 的 dependency management
+                 管理，目前是 42.7.11，比它宣告的 42.7.3 新一個 patch 版本，同一條
+                 42.7.x 線，相容）——不用另外釘版本或排除依賴。本機/CI 測試環境走
+                 docker-compose 的一般 TCP 連線，完全用不到這個依賴，只有部署到 Cloud
+                 Run、DB_URL 帶 socketFactory 參數時才會真正生效。 -->
+            <groupId>com.google.cloud.sql</groupId>
+            <artifactId>postgres-socket-factory</artifactId>
+            <version>${postgres-socket-factory.version}</version>
             <scope>runtime</scope>
         </dependency>
         <dependency>

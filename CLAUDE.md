@@ -185,19 +185,26 @@ This is a **design/pseudo-code answer**, not something implemented in the runnin
 
 # 🚀 Part 10: Deployment & CI/CD (GCP Cloud Run + Cloud SQL + Secret Manager)
 
-* **Compute:** Cloud Run, deployed from source via Google Cloud Buildpacks (`gcloud run deploy --source .`) so no hand-maintained Dockerfile is required.
+* **No staging environment.** This project deploys to production only — one Cloud SQL database, one Cloud Run service, one set of Secret Manager entries. Do not provision a second DB/user or a second Cloud Run service "for staging"; that pattern is specific to other projects, not this one.
+* **Compute:** Cloud Run, deployed from a hand-maintained **Dockerfile** (multi-stage: Maven build stage → slim JRE runtime stage, non-root user), built and pushed to Artifact Registry, then `gcloud run deploy --image=...`. (Supersedes an earlier Buildpacks-only plan: a Dockerfile is proven from prior real deployment experience on a similar Java/Maven stack; Buildpacks was never actually tested for this project and carries more unknown risk at deploy time.)
 * **Instance settings:**
     - `min-instances=1` — keeps one instance always running, avoiding cold starts.
-    - `max-instances=1` — this project intentionally runs as a single instance; no horizontal scaling, no distributed-state concerns (matches Part 2.3 and Part 8.6).
-    - **"CPU always allocated"** — required so the `@Async` notification (Part 5) can finish running after the HTTP response is returned, instead of being CPU-throttled.
-* **Database:** Cloud SQL for PostgreSQL, accessed via the **Cloud SQL Auth Proxy / Cloud SQL Java Connector** over a Unix domain socket — never over a public IP.
-* **Secrets:** DB credentials, JWT signing secret, and the third-party OAuth2 client secret all live in **Secret Manager**, mounted into Cloud Run as environment variables/secret references. Nothing sensitive is ever committed to the repo.
-* **Custom domain:** mapped directly to the Cloud Run service; TLS is Google-managed automatically.
-* **CI/CD (GitHub Actions):**
+    - `max-instances=1` — **must stay 1, never higher.** The in-memory rate limiter (Part 2.3) and the `@Async` notification design (Part 5) both assume exactly one running instance. Raising this silently breaks those assumptions (e.g. the effective rate limit becomes `configured limit × instance count`).
+    - `--no-cpu-throttling` — required so the `@Async` notification (Part 5) can finish running in the background after the HTTP response is returned, instead of being CPU-throttled.
+* **Database:** Cloud SQL for PostgreSQL, accessed via `postgres-socket-factory` over a Unix domain socket (`--add-cloudsql-instances`) — never over a public IP.
+* **Environment variable names must match `application.yml`'s existing placeholders** — `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET` — not generic Spring Boot property names like `SPRING_DATASOURCE_URL`; the app only reads what its own `${...}` placeholders are literally named. `DB_URL` for the Cloud SQL connection takes the socket-factory JDBC form: `jdbc:postgresql:///<db-name>?cloudSqlInstance=<project>:<region>:<instance>&socketFactory=com.google.cloud.sql.postgres.SocketFactory`.
+* **Secrets:** DB password and JWT signing secret live in **Secret Manager**, mounted into Cloud Run via `--set-secrets` (never `--set-env-vars`, which would leave them in plaintext in deploy history/logs). Nothing sensitive is ever committed to the repo. **Never provision a "default password" secret** — this project deliberately has no seeded/default credentials (Part 3); every account is created via `POST /api/auth/register`.
+* **Health check endpoint:** add `spring-boot-starter-actuator` and expose `/actuator/health`, whitelisted in `SecurityConfig`'s permitAll list (same pattern as the Swagger paths, Part 3). This does not exist yet and must be added before deployment — needed for both the CD pipeline's smoke test and GCP's Uptime Check.
+* **GitHub Actions auth:** use **Workload Identity Federation (WIF)**, not a long-lived service account JSON key. No secret key ever sits in GitHub Secrets; GitHub's own OIDC token is exchanged for short-lived GCP credentials at CI run time.
+* **Custom domain via Cloudflare:** the domain is registered and DNS-managed on Cloudflare, proxied (orange-cloud) in front of Cloud Run — this is the exact deployment context Part 2.3's `CF-Connecting-IP` handling was written for. Domain mapping: `gcloud beta run domain-mappings create` against the Cloud Run service, CNAME to `ghs.googlehosted.com` in Cloudflare (DNS-only until the mapping resolves), then switch SSL/TLS mode to Full (Strict) and flip the record to Proxied.
+* **Defense in depth at the edge:** in addition to the application-level rate limiter (Part 2.3), also add a Cloudflare Rate Limiting rule on `/api/auth/login`. This blocks obvious abuse before it ever reaches Cloud Run (saving compute cost); the app-level limiter remains the authoritative, always-present protection regardless of which edge is in front of it.
+* **Do not add a Cloudflare country-block rule.** Unlike other projects, this API needs to stay reachable by whoever at the reviewing company tests it, wherever they are — geo-restricting traffic risks locking out the very people this deployment is for.
+* **Branch/PR discipline:** no GitHub Environments approval gate for now (solo project, no second reviewer available) — CD triggers directly on push to `main`. Revisit if a second developer joins.
+* **CI/CD (GitHub Actions), single production pipeline:**
     1. On push to `main`: run unit + integration tests (Testcontainers).
     2. Run Flyway migrations against Cloud SQL as an explicit pipeline step.
-    3. Build and push the container image to Artifact Registry.
-    4. `gcloud run deploy` the new revision.
+    3. Build the Docker image, push to Artifact Registry.
+    4. `gcloud run deploy` the new revision (`max-instances=1`, `--no-cpu-throttling`, `--set-secrets` for DB password/JWT secret, `--add-cloudsql-instances`).
     5. Smoke-test `/actuator/health` on the deployed revision before considering the deploy successful.
 
 ---

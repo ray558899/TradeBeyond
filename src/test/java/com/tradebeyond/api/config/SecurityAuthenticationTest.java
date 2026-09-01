@@ -116,6 +116,16 @@ class SecurityAuthenticationTest {
     }
 
     @Test
+    void actuatorHealthEndpoint_isNotBlockedByFilterChain_whenNoTokenProvided() throws Exception {
+        // Part 10：/actuator/health 是給 CD pipeline 的 smoke test 跟 GCP Uptime Check 用的，
+        // 這兩者都不會帶 JWT，所以必須是 permitAll。這個 @WebMvcTest slice 沒有載入
+        // spring-boot-starter-actuator 的自動組態，就算通過安全層也不會是 200（沒有對應的
+        // handler）——這裡只在乎安全層有沒有把它擋成 401，跟上面 Swagger 那幾條測試同一個模式。
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(401));
+    }
+
+    @Test
     void protectedEndpoint_returns200_whenValidTokenProvided() throws Exception {
         ProductCategory category = new ProductCategory();
         ReflectionTestUtils.setField(category, "categoryId", 10L);
