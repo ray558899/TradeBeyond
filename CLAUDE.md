@@ -31,7 +31,7 @@ Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
 
 ## 1. Backend Is the Only Authority
 * Never trust any value, calculation, or state sent from the client.
-* `POST /api/order` MUST only accept `productId`, `userId`, `orderAmount` from the request body (camelCase — the `order_amount` spelling in the original spec/ER diagram is SQL column notation, not a JSON API contract; this project's entire JSON surface uses camelCase, no `@JsonProperty` overrides).
+* `POST /api/order` MUST only accept `productId`, `orderAmount` from the request body (camelCase — the `order_amount` spelling in the original spec/ER diagram is SQL column notation, not a JSON API contract; this project's entire JSON surface uses camelCase, no `@JsonProperty` overrides). **`userId` is never accepted from the client** — the order is always created for the authenticated caller (`CurrentUserProvider`, Part 2.4). This is the same protection class as the read/update/delete ownership checks, just applied at creation time: without it, any authenticated user could spoof someone else's `userId` and create orders under their account.
     * ❌ Forbidden: client sends `unitPrice` or `totalCost`.
     * ✅ Mandatory: server looks up `unit_price` and `tax_rate` from the DB and computes `totalCost = order_amount * unit_price * (1 + tax_rate)` using `BigDecimal`.
 * **Snapshot both price inputs, not just tax rate:** at order creation time, persist both `tax_rate_snapshot` and `unit_price_snapshot` into the Order row. Neither is re-derived later via a live join — otherwise a later price or tax-rate change would silently alter historical order totals, or make `PATCH /api/order/{order_id}` inconsistent (tax rate frozen but price not).
@@ -58,6 +58,7 @@ Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
     - `GET /api/order/{userId}`: if `{userId}` isn't the caller's own, `ForbiddenException` (403).
     - `PATCH`/`DELETE /api/order/{order_id}`: if the order doesn't belong to the caller, `OrderNotFoundException` (404) — **not** 403. This deliberately makes "not yours" indistinguishable from "doesn't exist," so a caller can't use the response to enumerate order IDs belonging to other users. Implement by including the caller's `userId` directly in the lookup query (order not found *for this user* == not found), not by fetching first and branching on ownership afterward.
     - `DELETE /api/user/{userId}`: if `{userId}` isn't the caller's own, `ForbiddenException` (403).
+    - `POST /api/order` (creation): does not accept a `userId` field at all — the order is always created for the authenticated caller. No exception path needed here; there's simply nothing in the request the client could use to specify someone else's identity.
 
 ---
 

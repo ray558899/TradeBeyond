@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
@@ -65,33 +66,55 @@ class OrderServiceTest {
 
     @Test
     void createOrder_throwsUserNotFoundException_whenUserDoesNotExist() {
-        // userId 不存在時，建單必須直接失敗（4xx），不能建出一筆沒有合法 user 關聯的 Order
+        // userId 不存在時，建單必須直接失敗（4xx），不能建出一筆沒有合法 user 關聯的 Order。
+        // Part 2.1/2.4：userId 不再由 request 帶入，一律用目前登入者身分查詢。
+        SecurityContextTestSupport.authenticateAs(1L);
         when(userService.getById(1L)).thenThrow(new UserNotFoundException(1L));
 
-        assertThatThrownBy(() -> orderService.createOrder(new OrderCreateRequest(1L, 2L, BigDecimal.ONE)))
+        assertThatThrownBy(() -> orderService.createOrder(new OrderCreateRequest(2L, BigDecimal.ONE)))
                 .isInstanceOf(UserNotFoundException.class);
     }
 
     @Test
     void createOrder_throwsProductNotFoundException_whenProductDoesNotExist() {
         // productId 不存在時，建單必須直接失敗（4xx），不能建出一筆沒有合法 product 關聯的 Order
+        SecurityContextTestSupport.authenticateAs(1L);
         when(userService.getById(1L)).thenReturn(new Users());
         when(productService.getById(2L)).thenThrow(new ProductNotFoundException(2L));
 
-        assertThatThrownBy(() -> orderService.createOrder(new OrderCreateRequest(1L, 2L, BigDecimal.ONE)))
+        assertThatThrownBy(() -> orderService.createOrder(new OrderCreateRequest(2L, BigDecimal.ONE)))
                 .isInstanceOf(ProductNotFoundException.class);
+    }
+
+    @Test
+    void createOrder_usesCurrentLoggedInUserId_notAnyClientSuppliedValue() {
+        // Part 2.1/2.4（IDOR 防護延伸到建立階段）：OrderCreateRequest 完全沒有 userId 欄位，
+        // 訂單一律歸屬到目前登入者，client 端沒有任何欄位可以拿來冒用別人的身分建立訂單
+        SecurityContextTestSupport.authenticateAs(1L);
+        Users currentUser = new Users();
+        ReflectionTestUtils.setField(currentUser, "userId", 1L);
+        Product product = productWith(new BigDecimal("100.0000"), new BigDecimal("0.0500"));
+        when(userService.getById(1L)).thenReturn(currentUser);
+        when(productService.getById(2L)).thenReturn(product);
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Order result = orderService.createOrder(new OrderCreateRequest(2L, new BigDecimal("2")));
+
+        assertThat(result.getUser().getUserId()).isEqualTo(1L);
+        verify(userService).getById(1L);
     }
 
     @Test
     void createOrder_calculatesTotalCost_forNormalOrderAmount() {
         // 訂購 2 個、單價 100、稅率 5% → totalCost = 2 * 100 * 1.05 = 210.0000，
         // 且 unitPriceSnapshot / taxRateSnapshot 必須鎖住下單當下的值
+        SecurityContextTestSupport.authenticateAs(1L);
         Product product = productWith(new BigDecimal("100.0000"), new BigDecimal("0.0500"));
         when(userService.getById(1L)).thenReturn(new Users());
         when(productService.getById(2L)).thenReturn(product);
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        Order result = orderService.createOrder(new OrderCreateRequest(1L, 2L, new BigDecimal("2")));
+        Order result = orderService.createOrder(new OrderCreateRequest(2L, new BigDecimal("2")));
 
         assertThat(result.getTotalCost()).isEqualByComparingTo("210.0000");
         assertThat(result.getUnitPriceSnapshot()).isEqualByComparingTo("100.0000");
@@ -101,12 +124,13 @@ class OrderServiceTest {
     @Test
     void createOrder_totalCostIsZero_whenOrderAmountIsZero() {
         // orderAmount = 0 時，即使單價/稅率都不是 0，totalCost 也必須精確為 0
+        SecurityContextTestSupport.authenticateAs(1L);
         Product product = productWith(new BigDecimal("100.0000"), new BigDecimal("0.0500"));
         when(userService.getById(1L)).thenReturn(new Users());
         when(productService.getById(2L)).thenReturn(product);
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        Order result = orderService.createOrder(new OrderCreateRequest(1L, 2L, BigDecimal.ZERO));
+        Order result = orderService.createOrder(new OrderCreateRequest(2L, BigDecimal.ZERO));
 
         assertThat(result.getTotalCost()).isEqualByComparingTo("0.0000");
     }
@@ -115,12 +139,13 @@ class OrderServiceTest {
     void createOrder_totalCostIsNegative_whenOrderAmountIsNegative() {
         // 這裡只驗證純計算邏輯本身對負數輸入的正確性（正負號要對）；
         // 擋掉「不該接受負數訂購量」是 DTO 層 @Positive 的責任，不是這個計算方法的責任
+        SecurityContextTestSupport.authenticateAs(1L);
         Product product = productWith(new BigDecimal("100.0000"), new BigDecimal("0.0500"));
         when(userService.getById(1L)).thenReturn(new Users());
         when(productService.getById(2L)).thenReturn(product);
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        Order result = orderService.createOrder(new OrderCreateRequest(1L, 2L, new BigDecimal("-1")));
+        Order result = orderService.createOrder(new OrderCreateRequest(2L, new BigDecimal("-1")));
 
         assertThat(result.getTotalCost()).isEqualByComparingTo("-105.0000");
     }
@@ -128,12 +153,13 @@ class OrderServiceTest {
     @Test
     void createOrder_totalCostEqualsAmountTimesPrice_whenTaxRateIsZero() {
         // 稅率 0% 時，totalCost 應該就是 orderAmount * unitPrice，不含任何額外稅金
+        SecurityContextTestSupport.authenticateAs(1L);
         Product product = productWith(new BigDecimal("50.0000"), new BigDecimal("0.0000"));
         when(userService.getById(1L)).thenReturn(new Users());
         when(productService.getById(2L)).thenReturn(product);
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        Order result = orderService.createOrder(new OrderCreateRequest(1L, 2L, new BigDecimal("3")));
+        Order result = orderService.createOrder(new OrderCreateRequest(2L, new BigDecimal("3")));
 
         assertThat(result.getTotalCost()).isEqualByComparingTo("150.0000");
     }

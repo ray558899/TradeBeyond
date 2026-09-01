@@ -90,7 +90,7 @@ class OrderControllerTest {
 
         mockMvc.perform(post("/api/order")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new OrderCreateRequest(1L, 2L, new BigDecimal("2")))))
+                        .content(objectMapper.writeValueAsString(new OrderCreateRequest(2L, new BigDecimal("2")))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.orderId").value(100))
                 .andExpect(jsonPath("$.totalCost").value(210.0));
@@ -101,7 +101,7 @@ class OrderControllerTest {
         // @Positive 驗證失敗必須回 400 + 統一的 ProblemDetail 格式，不可以是 500
         mockMvc.perform(post("/api/order")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new OrderCreateRequest(1L, 2L, new BigDecimal("-1")))))
+                        .content(objectMapper.writeValueAsString(new OrderCreateRequest(2L, new BigDecimal("-1")))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("VALIDATION_FAILED"));
     }
