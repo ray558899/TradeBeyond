@@ -6,8 +6,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tradebeyond.api.config.InMemoryRateLimiter;
 import com.tradebeyond.api.config.JwtAuthenticationEntryPoint;
 import com.tradebeyond.api.config.JwtAuthenticationFilter;
+import com.tradebeyond.api.config.RateLimitFilter;
 import com.tradebeyond.api.config.SecurityConfig;
 import com.tradebeyond.api.dto.LoginRequest;
 import com.tradebeyond.api.dto.RefreshTokenRequest;
@@ -36,7 +38,8 @@ import org.springframework.test.web.servlet.MockMvc;
  * 同時證明這兩個路徑不需要帶 token 也能存取。
  */
 @WebMvcTest(controllers = AuthController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtAuthenticationEntryPoint.class, TokenService.class,
+        RateLimitFilter.class, InMemoryRateLimiter.class})
 @TestPropertySource(properties = "JWT_SECRET=test-jwt-secret-for-controller-test-0123456789")
 class AuthControllerTest {
 

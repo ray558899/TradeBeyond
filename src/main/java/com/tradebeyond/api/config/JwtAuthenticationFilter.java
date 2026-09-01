@@ -31,6 +31,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     @Override
+    protected boolean shouldNotFilterErrorDispatch() {
+        // 預設值 true 會讓這個 filter 跳過 Spring Boot 找不到 handler 時內部轉發到 /error 的
+        // ERROR dispatch；但 Security filter chain 的 AuthorizationFilter 在 ERROR dispatch 時
+        // 還是會重新執行一次，STATELESS 模式下 SecurityContext 是每次 filter chain 都重新推導的，
+        // 這裡如果不重新解析 token，第二次執行就會看到空的 SecurityContext，被誤判成未認證，
+        // 導致「帶合法 token 打一個不存在的路徑」變成 401 而不是 404。改成 false 讓這個 filter
+        // 在 ERROR dispatch 也重新執行、重新解析 header，把認證狀態帶過去。
+        return false;
+    }
+
+    @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String header = request.getHeader("Authorization");
