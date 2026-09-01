@@ -70,12 +70,20 @@ jobs:
             --allow-unauthenticated \
             --quiet
 
-      - name: Smoke test /actuator/health on the custom domain
+      - name: Smoke test /actuator/health on the Cloud Run URL
         run: |
           # Cloud Run 回報部署完成，跟 Spring Boot app 真正啟動完畢（連上 Cloud SQL、
           # 跑完 Flyway、組完 Security bean）之間有幾秒到十幾秒的空窗，直接打一次
           # 不通過就判失敗太急躁——改成重試：最多 10 次、每次間隔 5 秒（最多等 50 秒）。
-          url="https://test.tbpurity.com/actuator/health"
+          #
+          # 目標網址故意不打自訂網域 test.tbpurity.com：那個網域經過 Cloudflare，
+          # Cloudflare 的機器人防護會把 curl 這種非瀏覽器的自動化請求判定成可疑流量，
+          # 回一個 JS 挑戰頁（"Just a moment..."）——curl 永遠沒辦法通過這種挑戰，
+          # 不管重試幾次都一樣會失敗，這不是重試次數或間隔能解決的，是打錯了目標。
+          # 這裡的 smoke test 目的是驗證「這次部署的程式碼本身有沒有成功啟動」，
+          # 不是驗證 Cloudflare 的邊界設定，所以刻意繞開 Cloudflare，直接打 Cloud Run
+          # 配發的原始網址（*.run.app，不經過任何代理），避免碰到機器人防護的挑戰頁。
+          url="https://tradebeyond-api-556983952174.us-central1.run.app/actuator/health"
           max_attempts=10
           interval_seconds=5
           status="000"
