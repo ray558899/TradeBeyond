@@ -100,4 +100,14 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.status").value(409))
                 .andExpect(jsonPath("$.errorCode").value("TEST_CONFLICT"));
     }
+
+    @Test
+    void forbiddenException_mapsTo403_withProblemDetailAndErrorCode() throws Exception {
+        // ForbiddenException 的所有子類別（例如 Part 2.4 的 ForbiddenAccessException，IDOR 歸屬檢查）
+        // 都要被同一個 handler 攔到，回 403
+        mockMvc.perform(get("/test/forbidden"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.errorCode").value("TEST_FORBIDDEN"));
+    }
 }

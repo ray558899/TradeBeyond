@@ -1,9 +1,11 @@
 package com.tradebeyond.api.service;
 
+import com.tradebeyond.api.config.CurrentUserProvider;
 import com.tradebeyond.api.dto.UserCreateRequest;
 import com.tradebeyond.api.entity.Order;
 import com.tradebeyond.api.entity.Users;
 import com.tradebeyond.api.exception.DuplicateAccountException;
+import com.tradebeyond.api.exception.ForbiddenAccessException;
 import com.tradebeyond.api.exception.UserNotFoundException;
 import com.tradebeyond.api.repository.OrderRepository;
 import com.tradebeyond.api.repository.RefreshTokenRepository;
@@ -51,6 +53,12 @@ public class UserService {
 
     @Transactional
     public void deleteUser(Long userId) {
+        // Part 2.4 IDOR：先比對歸屬再碰資料庫，不是查出來後才判斷——被拒絕的請求不用多打
+        // 任何查詢，也不會因為「先查出使用者存不存在」而洩漏跟自己無關的帳號存在與否。
+        if (!CurrentUserProvider.getCurrentUserId().equals(userId)) {
+            throw new ForbiddenAccessException("只能刪除自己的帳號");
+        }
+
         Users user = getById(userId);
         List<Order> orders = orderRepository.findByUserUserId(userId);
         orders.forEach(orderRepository::delete);

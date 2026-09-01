@@ -6,18 +6,22 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.tradebeyond.api.dto.UserCreateRequest;
 import com.tradebeyond.api.entity.Users;
 import com.tradebeyond.api.exception.DuplicateAccountException;
+import com.tradebeyond.api.exception.ForbiddenAccessException;
 import com.tradebeyond.api.exception.UserNotFoundException;
 import com.tradebeyond.api.repository.OrderRepository;
 import com.tradebeyond.api.repository.RefreshTokenRepository;
 import com.tradebeyond.api.repository.UsersRepository;
+import com.tradebeyond.api.testsupport.SecurityContextTestSupport;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -47,6 +51,11 @@ class UserServiceTest {
     @BeforeEach
     void setUp() {
         userService = new UserService(usersRepository, orderRepository, refreshTokenRepository, passwordEncoder);
+    }
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextTestSupport.clear();
     }
 
     @Test
@@ -104,6 +113,7 @@ class UserServiceTest {
         // 的軟刪除放在一起 flush 時，會踩到 Hibernate 6 的一個已知 cascade 檢查問題，
         // 誤判成 TransientObjectException（已用 Testcontainers 實測重現，這個問題只有真實
         // Hibernate flush 才會出現，純 Mockito 完全測不出來，這裡只驗證「有沒有正確呼叫」）。
+        SecurityContextTestSupport.authenticateAs(1L);
         Users user = new Users();
         ReflectionTestUtils.setField(user, "userId", 1L);
         when(usersRepository.findById(1L)).thenReturn(Optional.of(user));
@@ -119,6 +129,7 @@ class UserServiceTest {
     @Test
     void deleteUser_stillCallsRevoke_whenUserHasNoActiveRefreshTokens() {
         // bulk UPDATE 對 0 筆資料生效也是合法且安全的操作，不需要先查有沒有資料才決定要不要呼叫
+        SecurityContextTestSupport.authenticateAs(1L);
         Users user = new Users();
         ReflectionTestUtils.setField(user, "userId", 1L);
         when(usersRepository.findById(1L)).thenReturn(Optional.of(user));
@@ -128,5 +139,16 @@ class UserServiceTest {
         userService.deleteUser(1L);
 
         verify(refreshTokenRepository).revokeAllActiveTokensForUser(eq(1L), any(Instant.class));
+    }
+
+    @Test
+    void deleteUser_throwsForbiddenAccessException_whenCallerIsNotTheTargetUser() {
+        // Part 2.4 IDOR：A 想刪 B 的帳號要被明確拒絕（403），比對在碰資料庫之前就先做，
+        // 不該為了一個註定會被拒絕的請求還多打一次不會用到結果的查詢
+        SecurityContextTestSupport.authenticateAs(1L);
+
+        assertThatThrownBy(() -> userService.deleteUser(2L))
+                .isInstanceOf(ForbiddenAccessException.class);
+        verifyNoInteractions(usersRepository, orderRepository, refreshTokenRepository);
     }
 }

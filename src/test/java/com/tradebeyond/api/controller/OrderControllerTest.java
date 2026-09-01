@@ -23,6 +23,7 @@ import com.tradebeyond.api.entity.Order;
 import com.tradebeyond.api.entity.Product;
 import com.tradebeyond.api.entity.ProductCategory;
 import com.tradebeyond.api.entity.Users;
+import com.tradebeyond.api.exception.ForbiddenAccessException;
 import com.tradebeyond.api.exception.OrderNotFoundException;
 import com.tradebeyond.api.service.OrderService;
 import com.tradebeyond.api.service.TokenService;
@@ -163,5 +164,16 @@ class OrderControllerTest {
         // path variable 型別不符（非數字）要回 4xx，不能是 500
         mockMvc.perform(get("/api/order/abc"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void listOrdersByUser_returns403WithErrorCode_whenCallerRequestsAnotherUsersOrders() throws Exception {
+        // Part 2.4 IDOR：Service 層丟出 ForbiddenAccessException，這裡驗證 Controller/GlobalExceptionHandler
+        // 這條線有正確接起來，回 403 + errorCode（不是只驗證 Service 邏輯本身，那個在 OrderServiceTest 測過了）
+        when(orderService.findOrdersByUserId(2L)).thenThrow(new ForbiddenAccessException("只能查詢自己的訂單"));
+
+        mockMvc.perform(get("/api/order/2"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN_NOT_OWNER"));
     }
 }

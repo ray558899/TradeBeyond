@@ -6,6 +6,8 @@ import com.tradebeyond.api.dto.LoginRequest;
 import com.tradebeyond.api.entity.Users;
 import com.tradebeyond.api.exception.InvalidCredentialsException;
 import com.tradebeyond.api.repository.UsersRepository;
+import com.tradebeyond.api.testsupport.SecurityContextTestSupport;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,6 +42,11 @@ class AuthServiceIntegrationTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @AfterEach
+    void tearDown() {
+        SecurityContextTestSupport.clear();
+    }
+
     @Test
     void login_throwsInvalidCredentialsException_whenUserIsSoftDeleted() {
         Users user = new Users();
@@ -49,6 +56,8 @@ class AuthServiceIntegrationTest {
         user = usersRepository.save(user);
 
         String account = user.getAccount();
+        // Part 2.4 IDOR：deleteUser 現在會比對目前登入者，這裡是自己刪自己的帳號，先模擬登入身分
+        SecurityContextTestSupport.authenticateAs(user.getUserId());
         userService.deleteUser(user.getUserId()); // 軟刪除
 
         // 密碼完全正確，但帳號已被軟刪除，必須跟「帳號不存在」丟出同一種例外，不能外洩「帳號存在但被刪除」

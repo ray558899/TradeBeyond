@@ -12,9 +12,11 @@ import com.tradebeyond.api.repository.ProductCategoryRepository;
 import com.tradebeyond.api.repository.ProductRepository;
 import com.tradebeyond.api.repository.RefreshTokenRepository;
 import com.tradebeyond.api.repository.UsersRepository;
+import com.tradebeyond.api.testsupport.SecurityContextTestSupport;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -61,6 +63,11 @@ class UserServiceIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @AfterEach
+    void tearDown() {
+        SecurityContextTestSupport.clear();
+    }
+
     @Test
     void deleteUser_softDeletesUserAndAllTheirOrders_withoutRemovingRows() {
         Users user = new Users();
@@ -91,6 +98,8 @@ class UserServiceIntegrationTest {
         Long userId = user.getUserId();
         Long orderId = order.getOrderId();
 
+        // Part 2.4 IDOR：deleteUser 現在會比對目前登入者，這裡是自己刪自己的帳號，先模擬登入身分
+        SecurityContextTestSupport.authenticateAs(userId);
         userService.deleteUser(userId);
 
         // 繞過 @SQLRestriction（不透過 Entity 查，直接查 raw 欄位），確認資料「還在」且 delete_at 已被設定，
@@ -153,6 +162,7 @@ class UserServiceIntegrationTest {
         Long userId = user.getUserId();
         Long refreshTokenId = refreshToken.getRefreshTokenId();
 
+        SecurityContextTestSupport.authenticateAs(userId);
         userService.deleteUser(userId);
 
         Timestamp revokedAt = jdbcTemplate.queryForObject(

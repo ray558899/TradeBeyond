@@ -10,6 +10,7 @@ import com.tradebeyond.api.config.JwtAuthenticationEntryPoint;
 import com.tradebeyond.api.config.JwtAuthenticationFilter;
 import com.tradebeyond.api.config.RateLimitFilter;
 import com.tradebeyond.api.config.SecurityConfig;
+import com.tradebeyond.api.exception.ForbiddenAccessException;
 import com.tradebeyond.api.exception.UserNotFoundException;
 import com.tradebeyond.api.service.TokenService;
 import com.tradebeyond.api.service.UserService;
@@ -53,5 +54,16 @@ class UserControllerTest {
         mockMvc.perform(delete("/api/user/99"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").value("USER_NOT_FOUND"));
+    }
+
+    @Test
+    void deleteUser_returns403WithErrorCode_whenCallerIsNotTheTargetUser() throws Exception {
+        // Part 2.4 IDOR：Service 層丟出 ForbiddenAccessException，這裡驗證 Controller/GlobalExceptionHandler
+        // 這條線有正確接起來，回 403 + errorCode（不是只驗證 Service 邏輯本身，那個在 UserServiceTest 測過了）
+        doThrow(new ForbiddenAccessException("只能刪除自己的帳號")).when(userService).deleteUser(2L);
+
+        mockMvc.perform(delete("/api/user/2"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN_NOT_OWNER"));
     }
 }
