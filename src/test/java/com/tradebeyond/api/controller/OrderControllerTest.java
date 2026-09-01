@@ -85,12 +85,13 @@ class OrderControllerTest {
 
     @Test
     void createOrder_returns201WithOrderBody_whenRequestIsValid() throws Exception {
+        // 請求合法時，建立訂單應該回 201 並帶回完整的訂單資料（含後端算出的 totalCost）
         Order order = buildOrder(100L, new BigDecimal("2"), new BigDecimal("210.0000"));
         when(orderService.createOrder(any(OrderCreateRequest.class))).thenReturn(order);
 
         mockMvc.perform(post("/api/order")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new OrderCreateRequest(1L, 2L, new BigDecimal("2")))))
+                        .content(objectMapper.writeValueAsString(new OrderCreateRequest(2L, new BigDecimal("2")))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.orderId").value(100))
                 .andExpect(jsonPath("$.totalCost").value(210.0));
@@ -101,13 +102,14 @@ class OrderControllerTest {
         // @Positive 驗證失敗必須回 400 + 統一的 ProblemDetail 格式，不可以是 500
         mockMvc.perform(post("/api/order")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new OrderCreateRequest(1L, 2L, new BigDecimal("-1")))))
+                        .content(objectMapper.writeValueAsString(new OrderCreateRequest(2L, new BigDecimal("-1")))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("VALIDATION_FAILED"));
     }
 
     @Test
     void patchOrder_returns200WithRecalculatedTotalCost_whenOrderExists() throws Exception {
+        // 訂單存在時，PATCH 應該回 200 並帶回依新 orderAmount 重算後的 totalCost
         Order order = buildOrder(100L, new BigDecimal("5"), new BigDecimal("525.0000"));
         when(orderService.patchOrderAmount(eq(100L), any(OrderUpdateRequest.class))).thenReturn(order);
 
@@ -134,12 +136,14 @@ class OrderControllerTest {
 
     @Test
     void deleteOrder_returns204_whenOrderExists() throws Exception {
+        // 訂單存在時，DELETE 應該回 204 No Content
         mockMvc.perform(delete("/api/order/100"))
                 .andExpect(status().isNoContent());
     }
 
     @Test
     void deleteOrder_returns404WithErrorCode_whenOrderDoesNotExist() throws Exception {
+        // 訂單不存在（含已軟刪除）時 DELETE 必須回 404，不能靜默成功
         doThrow(new OrderNotFoundException(999L)).when(orderService).deleteOrder(999L);
 
         mockMvc.perform(delete("/api/order/999"))

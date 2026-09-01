@@ -57,6 +57,7 @@ class AuthControllerTest {
 
     @Test
     void register_returns201WithUserBody_whenAccountIsAvailable() throws Exception {
+        // account 沒有重複時，註冊應該回 201 並帶回使用者資料，且絕對不能回傳 password 欄位
         Users user = new Users();
         ReflectionTestUtils.setField(user, "userId", 1L);
         user.setUsername("name");
@@ -92,6 +93,7 @@ class AuthControllerTest {
 
     @Test
     void login_returns200WithTokenResponse_whenCredentialsAreCorrect() throws Exception {
+        // 帳密正確時，登入應該回 200 並帶回完整的 accessToken/refreshToken/tokenType/expiresIn
         when(authService.login(new LoginRequest("myaccount", "correct-password")))
                 .thenReturn(new TokenResponse("access-token-value", "refresh-token-value", "Bearer", 900L));
 
@@ -108,6 +110,8 @@ class AuthControllerTest {
 
     @Test
     void login_returns401WithErrorCode_whenCredentialsAreInvalid() throws Exception {
+        // 密碼錯誤時，Controller/GlobalExceptionHandler 要把 Service 丟出的
+        // InvalidCredentialsException 正確轉成 401 + errorCode
         when(authService.login(new LoginRequest("myaccount", "wrong-password")))
                 .thenThrow(new InvalidCredentialsException());
 
@@ -136,6 +140,8 @@ class AuthControllerTest {
 
     @Test
     void refresh_returns401WithErrorCode_whenRefreshTokenIsInvalid() throws Exception {
+        // refresh token 無效（不存在/已撤銷/已過期）時，Controller 要把 Service 丟出的
+        // InvalidRefreshTokenException 正確轉成 401 + errorCode
         when(authService.refresh(new RefreshTokenRequest("bad-refresh-token")))
                 .thenThrow(new InvalidRefreshTokenException());
 

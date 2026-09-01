@@ -53,6 +53,8 @@ class AuthEndpointRateLimitTest {
 
     @Test
     void anonymousRequestsToLogin_areRateLimitedByClientIp_andReturn429AfterLimitExceeded() throws Exception {
+        // 匿名連續打 /api/auth/login 超過上限，即使是 permitAll 端點也要被限流擋下來，
+        // 驗證 login/register 這種未登入前的 endpoint 沒有因為不用帶 token 就跳過限流檢查
         when(authService.login(any(LoginRequest.class)))
                 .thenReturn(new TokenResponse("access-token", "refresh-token", "Bearer", 900));
 
@@ -72,6 +74,8 @@ class AuthEndpointRateLimitTest {
 
     @Test
     void anonymousRequestsFromDifferentClientIps_areRateLimitedIndependently() throws Exception {
+        // 一個匿名 IP 被限流擋下來後，換一個不同的匿名 IP 打同一個 endpoint 應該不受影響，
+        // 證明限流是以 client IP 為單位各自獨立計算，不會互相干擾
         when(authService.login(any(LoginRequest.class)))
                 .thenReturn(new TokenResponse("access-token", "refresh-token", "Bearer", 900));
 

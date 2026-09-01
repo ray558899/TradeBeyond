@@ -13,6 +13,7 @@ class TokenServiceTest {
 
     @Test
     void generateAccessToken_producesTokenThatParsesBackToSameUserId() {
+        // 簽發出來的 access token 解析回去，要能拿回原本簽發時的同一個 userId
         String token = tokenService.generateAccessToken(42L);
 
         assertThat(tokenService.parseAccessToken(token)).isEqualTo(42L);
@@ -37,6 +38,7 @@ class TokenServiceTest {
 
     @Test
     void generateRefreshTokenValue_producesDifferentRandomValues_eachTime() {
+        // 每次產生的 refresh token 明碼都要是不同的隨機值，不能重複或可預測
         String a = tokenService.generateRefreshTokenValue();
         String b = tokenService.generateRefreshTokenValue();
 
@@ -69,6 +71,7 @@ class TokenServiceTest {
 
     @Test
     void hashRefreshToken_producesDifferentHash_forDifferentRawTokens() {
+        // 不同的原始 token 算出來的雜湊值必須不同，這樣雜湊值才有辨識度、能拿去查表比對
         String hashA = tokenService.hashRefreshToken("raw-token-a");
         String hashB = tokenService.hashRefreshToken("raw-token-b");
 

@@ -53,6 +53,7 @@ class RateLimitClientIpResolutionTest {
 
     @Test
     void sameCfConnectingIp_isTreatedAsSameKey_regardlessOfDifferentXForwardedFor() throws Exception {
+        // 驗證限流 key 解析優先信任 CF-Connecting-IP，不會被呼叫方能自己塞的 X-Forwarded-For 干擾
         stubLoginSuccess();
 
         // CF-Connecting-IP 固定不變，即使每次搭配不同的 X-Forwarded-For（呼叫方能自己
@@ -73,6 +74,7 @@ class RateLimitClientIpResolutionTest {
 
     @Test
     void differentCfConnectingIp_isRateLimitedIndependently() throws Exception {
+        // 驗證不同的 CF-Connecting-IP 各自獨立計算限流額度，不會互相干擾
         stubLoginSuccess();
 
         // 一個 CF-Connecting-IP 打滿上限
@@ -91,6 +93,8 @@ class RateLimitClientIpResolutionTest {
 
     @Test
     void noCfConnectingIp_fallsBackToLastSegmentOfXForwardedFor_ignoringFakePrefixes() throws Exception {
+        // 沒有 CF-Connecting-IP 時，驗證 fallback 到 X-Forwarded-For 的最後一段，
+        // 且不受呼叫方能自己塞的前面假段影響
         stubLoginSuccess();
 
         // 沒有 CF-Connecting-IP（直連 Cloud Run 的 *.run.app 網址，繞過 Cloudflare，只剩一層代理）：

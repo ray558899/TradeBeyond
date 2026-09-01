@@ -42,6 +42,7 @@ class UserControllerTest {
 
     @Test
     void deleteUser_returns204_whenUserExists() throws Exception {
+        // 使用者存在時，DELETE 應該回 204 No Content
         mockMvc.perform(delete("/api/user/1"))
                 .andExpect(status().isNoContent());
     }

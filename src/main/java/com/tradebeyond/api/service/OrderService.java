@@ -32,7 +32,9 @@ public class OrderService {
 
     @Transactional
     public Order createOrder(OrderCreateRequest request) {
-        Users user = userService.getById(request.userId());
+        // Part 2.1/2.4：userId 不接受 request 帶入，一律用目前登入者身分建立，
+        // client 端沒有任何欄位可以拿來冒用別人的身分下單。
+        Users user = userService.getById(CurrentUserProvider.getCurrentUserId());
         Product product = productService.getById(request.productId());
 
         BigDecimal unitPriceSnapshot = product.getUnitPrice();

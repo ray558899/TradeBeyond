@@ -48,6 +48,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void businessException_mapsTo400_withProblemDetailAndErrorCode() throws Exception {
+        // BusinessException 的所有子類別都要被同一個 handler 攔到，回 400
         mockMvc.perform(get("/test/business"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
@@ -56,6 +57,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void unauthorizedException_mapsTo401_withProblemDetailAndErrorCode() throws Exception {
+        // UnauthorizedException 的所有子類別都要被同一個 handler 攔到，回 401
         mockMvc.perform(get("/test/unauthorized"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401))
@@ -64,6 +66,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void externalServiceException_mapsTo503_withProblemDetailAndErrorCode() throws Exception {
+        // ExternalServiceException 的所有子類別都要被同一個 handler 攔到，回 503
         mockMvc.perform(get("/test/external"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.status").value(503))

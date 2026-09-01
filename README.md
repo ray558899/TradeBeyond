@@ -57,8 +57,9 @@ src/main/java/com/tradebeyond/api/
 5. **查詢商品**：展開 `GET /api/product/{productId}` → Try it out，`productId` 帶 `1`（上面表格裡真實存在的資料），Execute，應該回 `200` 並看到 `unitPrice: 100.0000` 的實際商品資料。
 6. **建立訂單**：展開 `POST /api/order` → Try it out，帶入：
    - `productId`：`1`
-   - `userId`：在乾淨的本機環境上，第一個註冊的帳號就是 `user_id = 1`；不確定的話，把步驟 3 拿到的 `accessToken` 貼到任何 JWT 解碼工具（例如 jwt.io），payload 裡的 `sub` 欄位就是 userId。
    - `orderAmount`：任意正數，例如 `2`
+
+   沒有 `userId` 欄位可以填——訂單一律自動歸屬到目前 Authorize 用的那個帳號（後端從 token 取得，不接受也不會用 request 裡任何欄位指定別人的身分下單）。
 
    Execute，記下 Response body 裡的 `orderId`（`totalCost` 會是 `orderAmount * unitPriceSnapshot * (1 + taxRateSnapshot)`，例如 `productId=1`、`orderAmount=2` 會算出 `210.0000`）。
 7. **PATCH／DELETE 走一次完整 CRUD**：

@@ -14,6 +14,8 @@ class InMemoryRateLimiterTest {
 
     @Test
     void tryConsume_allowsUpToLimit_thenRejectsWithZeroRemaining() {
+        // 連續呼叫 tryConsume：上限內每次都 allowed=true 且 remainingTokens 遞減，
+        // 超過上限後 allowed=false、remainingTokens 維持 0（不會變負數），resetEpochSeconds 是未來時間點
         InMemoryRateLimiter rateLimiter = new InMemoryRateLimiter(3);
         String key = "test-key";
 
