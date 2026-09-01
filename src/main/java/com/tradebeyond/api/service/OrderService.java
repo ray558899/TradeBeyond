@@ -1,10 +1,12 @@
 package com.tradebeyond.api.service;
 
+import com.tradebeyond.api.config.CurrentUserProvider;
 import com.tradebeyond.api.dto.OrderCreateRequest;
 import com.tradebeyond.api.dto.OrderUpdateRequest;
 import com.tradebeyond.api.entity.Order;
 import com.tradebeyond.api.entity.Product;
 import com.tradebeyond.api.entity.Users;
+import com.tradebeyond.api.exception.ForbiddenAccessException;
 import com.tradebeyond.api.exception.OrderNotFoundException;
 import com.tradebeyond.api.repository.OrderRepository;
 import java.math.BigDecimal;
@@ -48,15 +50,9 @@ public class OrderService {
         return orderRepository.save(order);
     }
 
-    @Transactional(readOnly = true)
-    public Order getById(Long orderId) {
-        return orderRepository.findById(orderId)
-                .orElseThrow(() -> new OrderNotFoundException(orderId));
-    }
-
     @Transactional
     public Order patchOrderAmount(Long orderId, OrderUpdateRequest request) {
-        Order order = getById(orderId);
+        Order order = getOwnedOrderOrThrow(orderId);
         BigDecimal totalCost = calculateTotalCost(
                 request.orderAmount(), order.getUnitPriceSnapshot(), order.getTaxRateSnapshot());
 
@@ -68,14 +64,30 @@ public class OrderService {
 
     @Transactional
     public void deleteOrder(Long orderId) {
-        Order order = getById(orderId);
+        Order order = getOwnedOrderOrThrow(orderId);
         orderRepository.delete(order);
     }
 
     @Transactional(readOnly = true)
     public List<Order> findOrdersByUserId(Long userId) {
+        // Part 2.4 IDOR：先比對歸屬再查 DB，不是查出來後才判斷——被拒絕的請求不用多打一次
+        // 不會用到結果的查詢，也不會因為「先查出使用者存不存在」而洩漏跟自己無關的帳號存在與否。
+        if (!CurrentUserProvider.getCurrentUserId().equals(userId)) {
+            throw new ForbiddenAccessException("只能查詢自己的訂單");
+        }
         userService.getById(userId);
         return orderRepository.findByUserUserId(userId);
+    }
+
+    /**
+     * Part 2.4 IDOR：orderId 跟目前登入者 userId 一起當查詢條件，訂單存在但不是自己的，
+     * 跟訂單根本不存在，查出來都是空的——刻意讓兩種情況回應一模一樣的 404
+     * （OrderNotFoundException），不讓呼叫方從回應差異反推出這個 orderId 是否真實存在。
+     */
+    private Order getOwnedOrderOrThrow(Long orderId) {
+        Long currentUserId = CurrentUserProvider.getCurrentUserId();
+        return orderRepository.findByOrderIdAndUserUserId(orderId, currentUserId)
+                .orElseThrow(() -> new OrderNotFoundException(orderId));
     }
 
     private BigDecimal calculateTotalCost(BigDecimal orderAmount, BigDecimal unitPrice, BigDecimal taxRate) {

@@ -54,7 +54,10 @@ Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
 ## 4. Injection & Input Handling
 * **SQL Injection:** Spring Data JPA / named parameters only. No string concatenation into queries.
 * **Boundary values:** negative `order_amount`, non-existent `product_id`/`order_id`, and malformed payloads must all return clear 4xx responses, never a 500.
-* **No per-resource ownership check is required for this project.** Any authenticated user may read/modify any Order or User record — this is an explicit, documented scope decision (see Part 3), not an oversight. Do not add ownership/ACL logic beyond what's specified here.
+* **Resource ownership checks (IDOR protection) are required.** *(Decision reversal — this project originally scoped this out explicitly as acceptable for a take-home assessment; once the rest of the security posture was this thorough, leaving cross-user data access open no longer felt worth the residual risk, so the earlier decision was revisited and reversed. Recorded here rather than silently overwritten, because the reasoning at each point — including changing one's mind — is itself worth keeping.)*
+    - `GET /api/order/{userId}`: if `{userId}` isn't the caller's own, `ForbiddenException` (403).
+    - `PATCH`/`DELETE /api/order/{order_id}`: if the order doesn't belong to the caller, `OrderNotFoundException` (404) — **not** 403. This deliberately makes "not yours" indistinguishable from "doesn't exist," so a caller can't use the response to enumerate order IDs belonging to other users. Implement by including the caller's `userId` directly in the lookup query (order not found *for this user* == not found), not by fetching first and branching on ownership afterward.
+    - `DELETE /api/user/{userId}`: if `{userId}` isn't the caller's own, `ForbiddenException` (403).
 
 ---
 
@@ -62,7 +65,7 @@ Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
 
 * **Stateless:** JWT only (Access Token + Refresh Token). No OAuth2 for inbound user login — there is no third-party login requirement, and adding OAuth2 here would be over-engineering (see Part 6 for where OAuth2 *does* apply — outbound calls to the tax-rate provider).
 * **Login flow:** users authenticate with `account` + `password` (verified against the BCrypt hash, Part 2.2). A soft-deleted user (`delete_at IS NOT NULL`) MUST NOT be able to log in, even with a correct password.
-* **No role/permission model.** Any authenticated user can perform any action on any endpoint. This is intentional and matches the current scope — do not introduce `Role`/`Permission` entities, `@PreAuthorize`, or per-field visibility rules unless explicitly asked.
+* **No role/permission model.** Any authenticated user has the same *type* of access as any other — no admin/staff/customer tiers, no `Role`/`Permission` entities, no `@PreAuthorize`. **This is separate from resource ownership (Part 2.4).** A plain authenticated user still can't touch another user's Order/User records — that's ownership-based authorization (does this resource belong to the caller?), not RBAC (does the caller's role permit this action type?). Don't conflate the two, and don't reintroduce a role system to solve what the ownership checks in Part 2.4 already solve.
 * Refresh tokens are persisted in the database (not an external cache) so logout/revocation works without Redis. **Store only a hash of the token (e.g. SHA-256), never the plaintext value.** Refresh tokens are high-entropy random values, not low-entropy human passwords — BCrypt's salted, non-deterministic output would prevent the fast exact-match DB lookup this needs, so a fast deterministic hash is the correct tool here, distinct from the BCrypt requirement for `Users.password` (Part 2.2).
 * **Refresh token rotation:** each successful `POST /api/auth/refresh` revokes the presented refresh token and issues a brand-new access/refresh pair. A stolen-but-unused refresh token becomes worthless the moment the legitimate client uses it next, since the attacker's copy is now revoked too.
 * **Gotcha — `requestMatchers` wildcards:** Spring 6's `PathPatternParser` requires `**` to be its own path segment (`/foo/**`, not `/foo**`) — the latter does not match nested subpaths and silently breaks deeper routes. This only shows up against a real running app, not a `@WebMvcTest` slice (see Part 9.3) — a slice can go fully green while the real app 401s on nested paths. Prefer explicit enumeration of exact public paths (Swagger, actuator, etc.) over a broadened wildcard meant to "cover everything at once."
@@ -85,8 +88,10 @@ Custom exception hierarchy, caught by a single `@ControllerAdvice` and rendered 
 ```
 BaseException (abstract)
  ├── BusinessException          → 400, e.g. InvalidOrderAmountException
- ├── ResourceNotFoundException  → 404, e.g. OrderNotFoundException / ProductNotFoundException
- ├── UnauthorizedException      → 401
+ ├── ResourceNotFoundException  → 404, e.g. OrderNotFoundException / ProductNotFoundException / UserNotFoundException
+ ├── UnauthorizedException      → 401, e.g. InvalidCredentialsException / InvalidRefreshTokenException
+ ├── ForbiddenException         → 403, e.g. IDOR/ownership rejections (Part 2.4)
+ ├── ConflictException          → 409, e.g. DuplicateAccountException
  └── ExternalServiceException   → 502/503, e.g. tax-rate provider timeout
 ```
 Each carries a stable `errorCode`. Adding a new error type means adding one class — the interceptor logic never changes. **This unified format applies even to rejections produced by the Spring Security filter chain itself** (missing/invalid JWT, e.g.) — a custom `AuthenticationEntryPoint` must render the same `ProblemDetail` JSON shape as `@RestControllerAdvice`, not Spring's default error page. A client should never be able to tell, from response shape alone, whether a 401 came from the filter chain or from application code.

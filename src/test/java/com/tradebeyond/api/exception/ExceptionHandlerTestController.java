@@ -49,6 +49,11 @@ public class ExceptionHandlerTestController {
         throw new TestConflictException();
     }
 
+    @GetMapping("/test/forbidden")
+    void forbidden() {
+        throw new TestForbiddenException();
+    }
+
     record TestRequest(@NotNull Long requiredField) {
     }
 
@@ -79,6 +84,12 @@ public class ExceptionHandlerTestController {
     static class TestConflictException extends ConflictException {
         TestConflictException() {
             super("TEST_CONFLICT", "test conflict error");
+        }
+    }
+
+    static class TestForbiddenException extends ForbiddenException {
+        TestForbiddenException() {
+            super("TEST_FORBIDDEN", "test forbidden error");
         }
     }
 }

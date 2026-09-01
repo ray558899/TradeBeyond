@@ -57,6 +57,11 @@ public class GlobalExceptionHandler {
         return buildProblemDetail(HttpStatus.CONFLICT, ex);
     }
 
+    @ExceptionHandler(ForbiddenException.class)
+    public ProblemDetail handleForbidden(ForbiddenException ex) {
+        return buildProblemDetail(HttpStatus.FORBIDDEN, ex);
+    }
+
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     public ProblemDetail handleOptimisticLock(ObjectOptimisticLockingFailureException ex) {
         // Part 8.3：Order 的 @Version 樂觀鎖被觸發時，Hibernate/Spring 丟的是這個框架例外，
